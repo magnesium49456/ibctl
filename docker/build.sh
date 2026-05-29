@@ -22,7 +22,7 @@ cp "$PROJECT_DIR/agent/target/ibctl-agent.jar" "$SCRIPT_DIR/ibctl-agent.jar"
 
 echo "=== Building Docker image ==="
 cd "$SCRIPT_DIR"
-docker build -t ibctl-test .
+docker build --pull -t ibctl-test .
 
 echo "=== Done ==="
 echo "Run with: cd docker && docker compose up"

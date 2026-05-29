@@ -431,6 +431,82 @@ public class SwingInspector {
     }
 
     /**
+     * Select a JComboBox option, preferring a combo box near a matching JLabel.
+     * IB Gateway's configuration panels use labels beside fields, so matching by
+     * nearby label is more stable than relying on component order alone.
+     */
+    public static String setComboBox(long windowId, String label, String itemText) {
+        Window window = findWindowById(windowId);
+        if (window == null) {
+            return "{\"found\":false,\"error\":\"Window not found\"}";
+        }
+
+        List<JComboBox> combos = new ArrayList<>();
+        collectComponents(window, JComboBox.class, combos);
+        if (combos.isEmpty()) {
+            return "{\"found\":false,\"error\":\"No combo box found\"}";
+        }
+
+        List<JComboBox> candidates = new ArrayList<>();
+        for (JComboBox combo : combos) {
+            if (findComboItem(combo, itemText) != null) {
+                candidates.add(combo);
+            }
+        }
+        if (candidates.isEmpty()) {
+            return "{\"found\":false,\"error\":\"Combo box option not found: " + escapeJson(itemText) + "\"}";
+        }
+
+        JComboBox selectedCombo = candidates.get(0);
+        String matchedLabel = null;
+        String normalizedLabel = label.toLowerCase();
+        if (!normalizedLabel.isBlank()) {
+            List<JLabel> labels = new ArrayList<>();
+            collectComponents(window, JLabel.class, labels);
+            int bestScore = Integer.MAX_VALUE;
+            for (JLabel l : labels) {
+                String text = l.getText();
+                if (text == null || text.isEmpty()) continue;
+                String normalizedText = text.toLowerCase();
+                if (!normalizedText.contains(normalizedLabel) && !normalizedLabel.contains(normalizedText)) {
+                    continue;
+                }
+                Rectangle labelBounds = boundsInWindow(window, l);
+                for (JComboBox combo : candidates) {
+                    Rectangle comboBounds = boundsInWindow(window, combo);
+                    int verticalDistance = Math.abs(centerY(labelBounds) - centerY(comboBounds));
+                    int horizontalDistance = Math.max(0, comboBounds.x - labelBounds.x);
+                    int wrongSidePenalty = comboBounds.x < labelBounds.x ? 10_000 : 0;
+                    int score = verticalDistance * 10 + horizontalDistance + wrongSidePenalty;
+                    if (score < bestScore) {
+                        bestScore = score;
+                        selectedCombo = combo;
+                        matchedLabel = text;
+                    }
+                }
+            }
+        }
+
+        Object item = findComboItem(selectedCombo, itemText);
+        Object current = selectedCombo.getSelectedItem();
+        boolean changed = current == null || !current.toString().equals(item.toString());
+        try {
+            final JComboBox finalCombo = selectedCombo;
+            final Object finalItem = item;
+            SwingUtilities.invokeAndWait(() -> finalCombo.setSelectedItem(finalItem));
+        } catch (InterruptedException | InvocationTargetException e) {
+            return "{\"found\":true,\"error\":" + jsonString("Failed to select combo item: " + e.getMessage()) + "}";
+        }
+
+        return "{\"found\":true"
+            + ",\"label\":" + jsonString(matchedLabel)
+            + ",\"item\":" + jsonString(item.toString())
+            + ",\"changed\":" + changed
+            + ",\"class\":" + jsonString(selectedCombo.getClass().getSimpleName())
+            + "}";
+    }
+
+    /**
      * Dump all interactive components in a window for diagnostics.
      * Lists all AbstractButtons, JCheckBoxes, JTextFields, JTree nodes with their
      * text, class, selected state, and visibility.
@@ -473,6 +549,30 @@ public class SwingInspector {
             sb.append(",\"editable\":").append(f.isEditable());
             sb.append(",\"columns\":").append(f.getColumns());
             sb.append("}");
+        }
+
+        sb.append("],\"comboboxes\":[");
+        List<JComboBox> combos = new ArrayList<>();
+        collectComponents(window, JComboBox.class, combos);
+        first = true;
+        for (int i = 0; i < combos.size(); i++) {
+            JComboBox combo = combos.get(i);
+            if (!first) sb.append(",");
+            first = false;
+            sb.append("{\"index\":").append(i);
+            sb.append(",\"class\":").append(jsonString(combo.getClass().getName()));
+            Object selected = combo.getSelectedItem();
+            sb.append(",\"selected\":").append(jsonString(selected != null ? selected.toString() : ""));
+            sb.append(",\"visible\":").append(combo.isVisible());
+            sb.append(",\"enabled\":").append(combo.isEnabled());
+            sb.append(",\"items\":[");
+            int itemCount = combo.getItemCount();
+            for (int itemIdx = 0; itemIdx < Math.min(itemCount, 20); itemIdx++) {
+                if (itemIdx > 0) sb.append(",");
+                Object item = combo.getItemAt(itemIdx);
+                sb.append(jsonString(item != null ? item.toString() : ""));
+            }
+            sb.append("]}");
         }
 
         sb.append("],\"trees\":[");
@@ -607,6 +707,32 @@ public class SwingInspector {
     }
 
     // --- Internal helpers ---
+
+    private static Object findComboItem(JComboBox combo, String itemText) {
+        String target = itemText.trim();
+        for (int i = 0; i < combo.getItemCount(); i++) {
+            Object item = combo.getItemAt(i);
+            if (item == null) continue;
+            String text = item.toString();
+            if (text.equalsIgnoreCase(target) || text.toLowerCase().contains(target.toLowerCase())) {
+                return item;
+            }
+        }
+        return null;
+    }
+
+    private static Rectangle boundsInWindow(Window window, Component component) {
+        try {
+            Point p = SwingUtilities.convertPoint(component.getParent(), component.getLocation(), window);
+            return new Rectangle(p.x, p.y, component.getWidth(), component.getHeight());
+        } catch (RuntimeException e) {
+            return component.getBounds();
+        }
+    }
+
+    private static int centerY(Rectangle r) {
+        return r.y + (r.height / 2);
+    }
 
     static Window findWindowById(long id) {
         for (Window w : Window.getWindows()) {

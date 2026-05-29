@@ -27,6 +27,27 @@ cd ibctl
 docker build -t ibctl .
 ```
 
+The Dockerfile defaults to `ubuntu:latest`, which the Docker Official Image
+uses for the latest Ubuntu LTS. Add `--pull` when building if you want Docker
+to refresh that base image instead of reusing a local cached copy:
+
+```bash
+docker build --pull -t ibctl .
+```
+
+By default the build also resolves the current IB Gateway release from the
+`latest` channel. To use the current stable channel instead:
+
+```bash
+docker build --pull --build-arg IB_GATEWAY_CHANNEL=stable -t ibctl .
+```
+
+To pin a repeatable Gateway build, set both the channel and exact version:
+
+```bash
+docker build --pull --build-arg IB_GATEWAY_CHANNEL=latest --build-arg IB_GATEWAY_VERSION=10.47.1c -t ibctl .
+```
+
 Create a `docker-compose.yml`:
 
 ```yaml
@@ -262,7 +283,7 @@ jar cfm target/ibctl-agent.jar src/main/resources/META-INF/MANIFEST.MF -C target
 Or use the multi-stage Docker build (no local toolchain needed):
 
 ```bash
-docker build -t ibctl .
+docker build --pull -t ibctl .
 ```
 
 ## License

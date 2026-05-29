@@ -47,6 +47,8 @@ def render_compose(cfg) -> str:
     env["TRADING_MODE"] = f"${{TRADING_MODE:-{mode}}}"
 
     # 2FA
+    env["TWOFACTOR_CODE"] = "${TWOFACTOR_CODE:-}"
+    env["TOTP_PROVIDER"] = f"${{TOTP_PROVIDER:-{rt.twofa.provider}}}"
     env["TWOFA_DEVICE"] = "${TWOFA_DEVICE:-}"
     env["TWOFA_TIMEOUT_ACTION"] = (
         f"${{TWOFA_TIMEOUT_ACTION:-{rt.twofa.timeoutAction}}}"
@@ -64,6 +66,7 @@ def render_compose(cfg) -> str:
     env["READ_ONLY_API"] = "${READ_ONLY_API:-no}"
     env["BYPASS_WARNING"] = "${BYPASS_WARNING:-yes}"
     env["ALLOW_BLIND_TRADING"] = "${ALLOW_BLIND_TRADING:-no}"
+    env["TWS_API_INSTRUMENT_TIMEZONE"] = "${TWS_API_INSTRUMENT_TIMEZONE:-UTC format}"
 
     # Scheduling
     env["AUTO_RESTART_TIME"] = "${AUTO_RESTART_TIME:-09:05 PM}"
@@ -77,7 +80,12 @@ def render_compose(cfg) -> str:
     env["IBCTL_LOG_DIR"] = "/opt/ibctl/persist/logs"
 
     # Command server
-    env["IBCTL_COMMAND_SERVER_ENABLED"] = "${IBCTL_COMMAND_SERVER_ENABLED:-}"
+    command_server_default = (
+        "true" if cp.exposeCommandServer or cp.exposePaperCommandServer else "false"
+    )
+    env["IBCTL_COMMAND_SERVER_ENABLED"] = (
+        f"${{IBCTL_COMMAND_SERVER_ENABLED:-{command_server_default}}}"
+    )
     env["IBCTL_COMMAND_HOST"] = "${IBCTL_COMMAND_HOST:-127.0.0.1}"
     env["IBCTL_COMMAND_PORT"] = (
         f"${{IBCTL_COMMAND_PORT:-{int(rt.commandServer.port)}}}"
@@ -87,8 +95,11 @@ def render_compose(cfg) -> str:
         f"${{IBCTL_COMMAND_PORT_PAPER:-{int(rt.commandServer.paperPort)}}}"
     )
 
-    # Dashboard (empty = TOML default for all flags)
-    env["IBCTL_DASHBOARD_ENABLED"] = "${IBCTL_DASHBOARD_ENABLED:-}"
+    # Dashboard
+    dashboard_default = "true" if cp.exposeDashboard else "false"
+    env["IBCTL_DASHBOARD_ENABLED"] = (
+        f"${{IBCTL_DASHBOARD_ENABLED:-{dashboard_default}}}"
+    )
     env["IBCTL_DASHBOARD_PORT"] = (
         f"${{IBCTL_DASHBOARD_PORT:-{int(rt.dashboard.port)}}}"
     )
@@ -183,10 +194,10 @@ def render_compose(cfg) -> str:
             f"127.0.0.1:{int(rt.commandServer.paperPort)}:{int(rt.commandServer.paperPort)}"
         )
     if cp.exposeDashboard:
-        # Both sides use the same env var default — matches canonical docker-compose.yml
+        # Both sides use the dashboard's actual default listen port.
         ports.append(
-            "${IBCTL_DASHBOARD_BIND:-127.0.0.1}:${IBCTL_DASHBOARD_PORT:-3080}:"
-            "${IBCTL_DASHBOARD_PORT:-3080}"
+            f"${{IBCTL_DASHBOARD_BIND:-127.0.0.1}}:${{IBCTL_DASHBOARD_PORT:-{int(rt.dashboard.port)}}}:"
+            f"${{IBCTL_DASHBOARD_PORT:-{int(rt.dashboard.port)}}}"
         )
     service["ports"] = ports
     service["tty"] = True

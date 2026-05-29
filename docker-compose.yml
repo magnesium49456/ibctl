@@ -25,6 +25,8 @@ services:
       TRADING_MODE: ${TRADING_MODE:-live}   # "live", "paper", or "both"
 
       # --- 2FA ---
+      TWOFACTOR_CODE: ${TWOFACTOR_CODE:-}
+      TOTP_PROVIDER: ${TOTP_PROVIDER:-oathtool}
       TWOFA_DEVICE: ${TWOFA_DEVICE:-}      # device name for 2FA selection dialog
       TWOFA_TIMEOUT_ACTION: ${TWOFA_TIMEOUT_ACTION:-restart}
       TWOFA_EXIT_INTERVAL: ${TWOFA_EXIT_INTERVAL:-120}
@@ -36,6 +38,7 @@ services:
       READ_ONLY_API: ${READ_ONLY_API:-no}
       BYPASS_WARNING: ${BYPASS_WARNING:-yes}
       ALLOW_BLIND_TRADING: ${ALLOW_BLIND_TRADING:-no}
+      TWS_API_INSTRUMENT_TIMEZONE: ${TWS_API_INSTRUMENT_TIMEZONE:-UTC format}
 
       # --- Scheduling ---
       # NOTE: IB Gateway ignores TIME_ZONE and uses UTC internally.
@@ -64,10 +67,10 @@ services:
       IBCTL_AUTO_LAUNCH: ${IBCTL_AUTO_LAUNCH:-}
 
       # --- Command Server (required for dashboard) ---
-      IBCTL_COMMAND_SERVER_ENABLED: ${IBCTL_COMMAND_SERVER_ENABLED:-false}
+      IBCTL_COMMAND_SERVER_ENABLED: ${IBCTL_COMMAND_SERVER_ENABLED:-true}
 
       # --- Dashboard (disabled by default — set to true to enable) ---
-      IBCTL_DASHBOARD_ENABLED: ${IBCTL_DASHBOARD_ENABLED:-false}
+      IBCTL_DASHBOARD_ENABLED: ${IBCTL_DASHBOARD_ENABLED:-true}
       IBCTL_DASHBOARD_PORT: ${IBCTL_DASHBOARD_PORT:-8080}
       IBCTL_DASHBOARD_TOKEN: ${IBCTL_DASHBOARD_TOKEN:-}
       IBCTL_DASHBOARD_AUTH_SECRET: ${IBCTL_DASHBOARD_AUTH_SECRET:-}
@@ -97,7 +100,7 @@ services:
       IBCTL_OIDC_ALLOWED_GROUPS: ${IBCTL_OIDC_ALLOWED_GROUPS:-}
 
       # --- Notifications (ntfy, Slack, Telegram — disabled by default) ---
-      IBCTL_NOTIFICATIONS_ENABLED: ${IBCTL_NOTIFICATIONS_ENABLED:-}
+      IBCTL_NOTIFICATIONS_ENABLED: ${IBCTL_NOTIFICATIONS_ENABLED:-true}
       IBCTL_NOTIFICATION_CHANNEL: ${IBCTL_NOTIFICATION_CHANNEL:-}
       IBCTL_NTFY_URL: ${IBCTL_NTFY_URL:-}
       IBCTL_NTFY_TOPIC: ${IBCTL_NTFY_TOPIC:-}
@@ -156,7 +159,7 @@ services:
       - "${IBCTL_VNC_BIND:-127.0.0.1}:6080:6080"                            # noVNC websocket
       - "127.0.0.1:7462:7462"                                               # Live command server
       - "127.0.0.1:7463:7463"                                               # Paper command server
-      - "${IBCTL_DASHBOARD_BIND:-127.0.0.1}:${IBCTL_DASHBOARD_PORT:-3080}:${IBCTL_DASHBOARD_PORT:-3080}" # Dashboard
+      - "${IBCTL_DASHBOARD_BIND:-127.0.0.1}:${IBCTL_DASHBOARD_PORT:-8080}:${IBCTL_DASHBOARD_PORT:-8080}" # Dashboard
       - "${IBCTL_ZMQ_BIND:-0.0.0.0}:${IBCTL_ZMQ_PORT:-5556}:${IBCTL_ZMQ_PORT:-5556}"               # ZMQ PUB
     tty: true
 

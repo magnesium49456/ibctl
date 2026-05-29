@@ -32,6 +32,7 @@ pub struct ApiConfigSettings {
     pub read_only_api: Option<bool>,
     pub bypass_order_precautions: Option<bool>,
     pub allow_blind_trading: Option<bool>,
+    pub instrument_timezone: Option<String>,
     pub auto_restart_time: Option<String>,
     pub auto_logoff_time: Option<String>,
 }
@@ -44,6 +45,12 @@ impl ApiConfigSettings {
             read_only_api: env_bool("READ_ONLY_API"),
             bypass_order_precautions: env_bool("BYPASS_WARNING"),
             allow_blind_trading: env_bool("ALLOW_BLIND_TRADING"),
+            instrument_timezone: Some(
+                std::env::var("TWS_API_INSTRUMENT_TIMEZONE")
+                    .ok()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| "UTC format".to_string()),
+            ),
             auto_restart_time: std::env::var("AUTO_RESTART_TIME").ok()
                 .filter(|s| !s.is_empty()),
             auto_logoff_time: std::env::var("AUTO_LOGOFF_TIME").ok()
@@ -56,6 +63,7 @@ impl ApiConfigSettings {
             || self.read_only_api.is_some()
             || self.bypass_order_precautions.is_some()
             || self.allow_blind_trading.is_some()
+            || self.instrument_timezone.is_some()
             || self.auto_restart_time.is_some()
             || self.auto_logoff_time.is_some()
     }
@@ -189,6 +197,27 @@ pub async fn apply_api_config(
         }
     }
 
+    if let Some(ref timezone) = settings.instrument_timezone {
+        log::info!(
+            "Setting dual-mode API instrument attribute timezone format to {}",
+            timezone
+        );
+        let ok = client
+            .set_combobox(
+                cid,
+                "Send instrument-specific attributes for dual-mode API client in",
+                timezone,
+            )
+            .await
+            .unwrap_or(false);
+        if !ok {
+            log::warn!(
+                "Could not set dual-mode API instrument attribute timezone format to {}",
+                timezone
+            );
+        }
+    }
+
     // --- API -> Precautions ---
     if let Some(bypass) = settings.bypass_order_precautions {
         client.select_tree_node(cid, "Precautions").await.ok();
@@ -275,6 +304,7 @@ mod tests {
             read_only_api: None,
             bypass_order_precautions: None,
             allow_blind_trading: None,
+            instrument_timezone: None,
             auto_restart_time: None,
             auto_logoff_time: None,
         };
@@ -288,6 +318,7 @@ mod tests {
             read_only_api: None,
             bypass_order_precautions: None,
             allow_blind_trading: None,
+            instrument_timezone: None,
             auto_restart_time: None,
             auto_logoff_time: None,
         };
@@ -301,6 +332,7 @@ mod tests {
             read_only_api: Some(false),
             bypass_order_precautions: None,
             allow_blind_trading: None,
+            instrument_timezone: None,
             auto_restart_time: None,
             auto_logoff_time: None,
         };
@@ -314,6 +346,21 @@ mod tests {
             read_only_api: None,
             bypass_order_precautions: Some(true),
             allow_blind_trading: None,
+            instrument_timezone: None,
+            auto_restart_time: None,
+            auto_logoff_time: None,
+        };
+        assert!(s.has_settings());
+    }
+
+    #[test]
+    fn test_has_settings_with_instrument_timezone() {
+        let s = ApiConfigSettings {
+            master_client_id: None,
+            read_only_api: None,
+            bypass_order_precautions: None,
+            allow_blind_trading: None,
+            instrument_timezone: Some("UTC format".to_string()),
             auto_restart_time: None,
             auto_logoff_time: None,
         };

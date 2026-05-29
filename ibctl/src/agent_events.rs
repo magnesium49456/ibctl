@@ -211,10 +211,7 @@ impl AgentObservation {
     /// Matches IBC's SecondFactorAuthenticationDialogHandler titles.
     pub fn has_2fa_dialog(&self) -> bool {
         self.windows.iter().any(|w| {
-            let t = w.title.to_lowercase();
-            t.contains("second factor authentication")
-                || t.contains("security code card authentication")
-                || t.contains("security code")
+            is_twofa_title(&w.title)
         })
     }
 
@@ -234,6 +231,17 @@ impl AgentObservation {
             t.contains("re-login is required") || t.contains("re-login") || t.contains("relogin")
         })
     }
+}
+
+pub fn is_twofa_title(title: &str) -> bool {
+    let t = title.to_lowercase();
+    t.contains("second factor")
+        || t.contains("two-factor")
+        || t.contains("2fa")
+        || t.contains("security code")
+        || t.contains("ib key authenticat")
+        || t.contains("ibkr mobile authenticat")
+        || t.contains("mobile authenticator")
 }
 
 #[cfg(test)]
@@ -313,6 +321,16 @@ mod tests {
         obs.window_closed(2, 3);
         assert_eq!(obs.windows.len(), 1);
         assert!(!obs.has_2fa_dialog());
+    }
+
+    #[test]
+    fn test_twofa_title_variants() {
+        assert!(is_twofa_title("Second Factor Authentication"));
+        assert!(is_twofa_title("Security Code Card Authentication"));
+        assert!(is_twofa_title("IB Key Authentication"));
+        assert!(is_twofa_title("IBKR Mobile Authentication"));
+        assert!(is_twofa_title("Mobile Authenticator app code"));
+        assert!(!is_twofa_title("IBKR Gateway"));
     }
 
     #[test]

@@ -8,6 +8,7 @@ use std::pin::Pin;
 use secrecy::{ExposeSecret, SecretString};
 
 use crate::agent_client::{AgentClient, WindowInfo};
+use crate::agent_events::is_twofa_title;
 use crate::config::TotpProvider;
 use crate::handlers::{DialogHandler, HandlerError, HandlerResult};
 use crate::totp;
@@ -36,11 +37,7 @@ impl DialogHandler for TotpEntryHandler {
     }
 
     fn can_handle(&self, window: &WindowInfo) -> bool {
-        let title = window.title.to_lowercase();
-        title.contains("second factor authentication")
-            || title.contains("2fa")
-            || title.contains("two-factor")
-            || title.contains("security code")
+        is_twofa_title(&window.title)
     }
 
     fn handle<'a>(
@@ -78,10 +75,15 @@ impl DialogHandler for TotpEntryHandler {
 
             // Consume the single-use TotpCode and type it into the first text field
             let code = totp_code.into_inner();
-            client
+            let typed = client
                 .type_text(window.id, 0, &code)
                 .await
                 .map_err(HandlerError::AgentError)?;
+            if !typed {
+                return Ok(HandlerResult::Error(
+                    "2FA code field not found or not writable".into(),
+                ));
+            }
 
             // Prefer the explicit OK/submit button. Some Gateway builds do not
             // accept Enter as form submission on the 2FA challenge dialog.
@@ -129,6 +131,20 @@ mod tests {
         let window = WindowInfo {
             id: WindowId(1),
             title: "Security Code".to_string(),
+            class: "dialog".to_string(),
+            bounds: None,
+            visible: true,
+        };
+
+        assert!(handler.can_handle(&window));
+    }
+
+    #[test]
+    fn test_can_handle_ibkr_mobile_authentication_window() {
+        let handler = TotpEntryHandler::new("TWOFACTOR_CODE".to_string(), TotpProvider::Oathtool);
+        let window = WindowInfo {
+            id: WindowId(1),
+            title: "IBKR Mobile Authentication".to_string(),
             class: "dialog".to_string(),
             bounds: None,
             visible: true,

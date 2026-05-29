@@ -20,6 +20,7 @@ use std::time::Instant;
 
 use tokio::sync::mpsc;
 
+use crate::agent_events::is_twofa_title;
 use crate::types::{Command, Signal};
 
 use types::Interrupt;
@@ -966,9 +967,7 @@ impl StateMachine {
                     return Ok(State::HandlingSessionConflict);
                 }
 
-                let twofa = windows.iter().find(|w| {
-                    w.title.to_lowercase().contains("second factor")
-                });
+                let twofa = windows.iter().find(|w| is_twofa_title(&w.title));
 
                 if let Some(win) = twofa {
                     // 2FA dialog is visible — reset gone timer
@@ -1653,7 +1652,7 @@ impl StateMachine {
             if probe_needed {
                 for w in windows {
                     let t = w.title.to_lowercase();
-                    if t.contains("second factor") {
+                    if is_twofa_title(&w.title) {
                         probe_twofa = true;
                     }
                     if t.contains("ib gateway") || t.contains("ibkr gateway") {
@@ -1763,6 +1762,14 @@ impl StateMachine {
     async fn do_reconnecting_session(&mut self) -> Result<State, StateMachineError> {
         let max = self.config.timing.relogin_max_attempts;
 
+        if !self.supervisor.is_running() {
+            log::warn!("ReconnectingSession: JVM is not running — restarting");
+            self.handler_registry.reset();
+            self.abort_client_id_task();
+            self.relogin_attempts = 0;
+            return Ok(State::Restarting);
+        }
+
         // Phase 3: exhausted attempts — cancel and fallback
         if self.relogin_attempts > max {
             log::warn!(
@@ -1854,9 +1861,7 @@ impl StateMachine {
 
                 if let Ok(win_list) = self.agent_client.list_windows().await {
                     // Check for 2FA dialog via window list
-                    let has_2fa = win_list.iter().any(|w| {
-                        w.title.to_lowercase().contains("second factor")
-                    });
+                    let has_2fa = win_list.iter().any(|w| is_twofa_title(&w.title));
                     if has_2fa {
                         log::info!("RE-LOGIN dialog gone, 2FA dialog found — waiting for auth");
                         self.handler_registry.reset();
@@ -2143,7 +2148,7 @@ impl StateMachine {
             return Some(State::ReconnectingSession);
         }
         // 2FA dialog: "Second Factor Authentication" / "IB Key Authentication"
-        if t.contains("second factor") || t.contains("ib key authenticat") {
+        if is_twofa_title(title) {
             return Some(State::WaitingFor2fa);
         }
         // Note: "Attempt N: Authenticating..." is a splash screen, NOT a blocking dialog.
@@ -2258,6 +2263,7 @@ impl StateMachine {
                     read_only_api: None,
                     bypass_order_precautions: None,
                     allow_blind_trading: None,
+                    instrument_timezone: None,
                     auto_restart_time: Some(time_str.clone()),
                     auto_logoff_time: None,
                 };

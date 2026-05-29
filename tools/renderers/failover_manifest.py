@@ -42,6 +42,7 @@ def generate_manifest() -> str:
         "TZ": {"description": "Timezone"},
         "AUTO_RESTART_TIME": {"description": "Daily restart time (UTC)"},
         "READ_ONLY_API": {"description": "API write access"},
+        "TWS_API_INSTRUMENT_TIMEZONE": {"description": "Dual-mode API instrument attribute timezone format"},
     }
 
     manifest = {

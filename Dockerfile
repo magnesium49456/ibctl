@@ -14,7 +14,7 @@ ARG IBCTL_VERSION=""
 # Docker's ubuntu:latest tag tracks the latest LTS release; use
 # --build-arg UBUNTU_IMAGE_TAG=24.04 to pin a specific LTS for repeatability.
 ARG UBUNTU_IMAGE_TAG=latest
-ARG UBUNTU_APT_MIRROR=mirror://mirrors.ubuntu.com/mirrors.txt
+ARG UBUNTU_APT_MIRROR=mirror+http://mirrors.ubuntu.com/mirrors.txt
 ARG UBUNTU_APT_FALLBACK_MIRROR=https://archive.ubuntu.com/ubuntu
 ARG UBUNTU_APT_PORTS_FALLBACK_MIRROR=https://ports.ubuntu.com/ubuntu-ports
 
@@ -41,9 +41,12 @@ ARG ZULU_URL=https://cdn.azul.com/zulu/bin/${ZULU_FILE}
 WORKDIR /tmp/setup
 
 # Official Ubuntu mirror setup:
-#  1) Bootstrap ca-certificates via Ubuntu's mirror list with an HTTP fallback.
-#  2) Switch archive sources to the configured mirror plus HTTPS fallback.
-# Security updates stay on the official security.ubuntu.com source.
+#  1) Bootstrap ca-certificates from HTTP-compatible sources because the
+#     minimal Ubuntu image has no CA trust store yet.
+#  2) Use Ubuntu's official mirror service plus HTTPS fallbacks after trust is
+#     installed. Apt still verifies package authenticity via Ubuntu signatures.
+# Security updates stay on the official security.ubuntu.com source. Mirror
+# choice is delegated to Ubuntu, not custom speed tests or regional pins.
 RUN set -eux; \
     configure_ubuntu_apt_sources() { \
         sources=/etc/apt/sources.list.d/ubuntu.sources; \
@@ -83,16 +86,37 @@ RUN set -eux; \
         ports_bootstrap="$(printf '%s' "${UBUNTU_APT_PORTS_FALLBACK_MIRROR}" | sed 's|^https://|http://|')"; \
         sed -i \
             -e "s|URIs: ${bootstrap_archive_uris}|URIs: ${archive_uris}|g" \
+            -e "s|URIs: ${archive_bootstrap}|URIs: ${UBUNTU_APT_FALLBACK_MIRROR}|g" \
             -e "s|URIs: ${ports_bootstrap}|URIs: ${UBUNTU_APT_PORTS_FALLBACK_MIRROR}|g" \
             -e "s|URIs: http://security.ubuntu.com/ubuntu/|URIs: https://security.ubuntu.com/ubuntu|g" \
             -e "s|URIs: http://security.ubuntu.com/ubuntu|URIs: https://security.ubuntu.com/ubuntu|g" \
             "${sources}"; \
     }; \
+    use_ubuntu_apt_fallback_sources() { \
+        sources=/etc/apt/sources.list.d/ubuntu.sources; \
+        bootstrap_mirror="$(printf '%s' "${UBUNTU_APT_MIRROR}" | sed 's|^https://|http://|')"; \
+        archive_bootstrap="$(printf '%s' "${UBUNTU_APT_FALLBACK_MIRROR}" | sed 's|^https://|http://|')"; \
+        bootstrap_archive_uris="${bootstrap_mirror}"; \
+        if [ "${bootstrap_mirror}" != "${archive_bootstrap}" ]; then bootstrap_archive_uris="${bootstrap_archive_uris} ${archive_bootstrap}"; fi; \
+        archive_uris="${UBUNTU_APT_MIRROR}"; \
+        if [ "${UBUNTU_APT_MIRROR}" != "${UBUNTU_APT_FALLBACK_MIRROR}" ]; then archive_uris="${archive_uris} ${UBUNTU_APT_FALLBACK_MIRROR}"; fi; \
+        sed -i \
+            -e "s|URIs: ${bootstrap_archive_uris}|URIs: ${archive_bootstrap}|g" \
+            -e "s|URIs: ${archive_uris}|URIs: ${UBUNTU_APT_FALLBACK_MIRROR}|g" \
+            "${sources}"; \
+    }; \
+    apt_get_update_with_fallback() { \
+        if ! apt-get update "$@"; then \
+            echo "Ubuntu mirror list unavailable; retrying apt update with ${UBUNTU_APT_FALLBACK_MIRROR}" >&2; \
+            use_ubuntu_apt_fallback_sources; \
+            apt-get update "$@"; \
+        fi; \
+    }; \
     configure_ubuntu_apt_sources \
-    && apt-get update -y \
+    && apt_get_update_with_fallback -y \
     && apt-get install --no-install-recommends --yes ca-certificates \
     && harden_ubuntu_apt_sources \
-    && apt-get update -y \
+    && apt_get_update_with_fallback -y \
     && apt-get install --no-install-recommends --yes curl \
     && apt-get clean && rm -rf /var/lib/apt/lists/* \
     # Validate supported architectures
@@ -145,7 +169,7 @@ ARG TARGETARCH
 ARG UBUNTU_APT_MIRROR
 ARG UBUNTU_APT_FALLBACK_MIRROR
 ARG UBUNTU_APT_PORTS_FALLBACK_MIRROR
-# Official Ubuntu mirror setup (see Stage 1 for rationale)
+# Official Ubuntu mirror setup (see Stage 1 for bootstrap/signature rationale)
 RUN set -eux; \
     configure_ubuntu_apt_sources() { \
         sources=/etc/apt/sources.list.d/ubuntu.sources; \
@@ -185,16 +209,37 @@ RUN set -eux; \
         ports_bootstrap="$(printf '%s' "${UBUNTU_APT_PORTS_FALLBACK_MIRROR}" | sed 's|^https://|http://|')"; \
         sed -i \
             -e "s|URIs: ${bootstrap_archive_uris}|URIs: ${archive_uris}|g" \
+            -e "s|URIs: ${archive_bootstrap}|URIs: ${UBUNTU_APT_FALLBACK_MIRROR}|g" \
             -e "s|URIs: ${ports_bootstrap}|URIs: ${UBUNTU_APT_PORTS_FALLBACK_MIRROR}|g" \
             -e "s|URIs: http://security.ubuntu.com/ubuntu/|URIs: https://security.ubuntu.com/ubuntu|g" \
             -e "s|URIs: http://security.ubuntu.com/ubuntu|URIs: https://security.ubuntu.com/ubuntu|g" \
             "${sources}"; \
     }; \
+    use_ubuntu_apt_fallback_sources() { \
+        sources=/etc/apt/sources.list.d/ubuntu.sources; \
+        bootstrap_mirror="$(printf '%s' "${UBUNTU_APT_MIRROR}" | sed 's|^https://|http://|')"; \
+        archive_bootstrap="$(printf '%s' "${UBUNTU_APT_FALLBACK_MIRROR}" | sed 's|^https://|http://|')"; \
+        bootstrap_archive_uris="${bootstrap_mirror}"; \
+        if [ "${bootstrap_mirror}" != "${archive_bootstrap}" ]; then bootstrap_archive_uris="${bootstrap_archive_uris} ${archive_bootstrap}"; fi; \
+        archive_uris="${UBUNTU_APT_MIRROR}"; \
+        if [ "${UBUNTU_APT_MIRROR}" != "${UBUNTU_APT_FALLBACK_MIRROR}" ]; then archive_uris="${archive_uris} ${UBUNTU_APT_FALLBACK_MIRROR}"; fi; \
+        sed -i \
+            -e "s|URIs: ${bootstrap_archive_uris}|URIs: ${archive_bootstrap}|g" \
+            -e "s|URIs: ${archive_uris}|URIs: ${UBUNTU_APT_FALLBACK_MIRROR}|g" \
+            "${sources}"; \
+    }; \
+    apt_get_update_with_fallback() { \
+        if ! apt-get update "$@"; then \
+            echo "Ubuntu mirror list unavailable; retrying apt update with ${UBUNTU_APT_FALLBACK_MIRROR}" >&2; \
+            use_ubuntu_apt_fallback_sources; \
+            apt-get update "$@"; \
+        fi; \
+    }; \
     configure_ubuntu_apt_sources \
-    && apt-get update -qq \
+    && apt_get_update_with_fallback -qq \
     && apt-get install -y -qq --no-install-recommends ca-certificates \
     && harden_ubuntu_apt_sources \
-    && apt-get update -qq \
+    && apt_get_update_with_fallback -qq \
     && apt-get install -y -qq --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 RUN mkdir -p /prebuilt \
@@ -262,7 +307,7 @@ COPY --from=setup /usr/local/ /usr/local/
 COPY --from=setup /root/Jts /home/ibgateway/Jts
 
 # Install runtime packages + Python for dashboard.
-# Official Ubuntu mirror setup (see Stage 1 for rationale)
+# Official Ubuntu mirror setup (see Stage 1 for bootstrap/signature rationale)
 RUN set -eux; \
     configure_ubuntu_apt_sources() { \
         sources=/etc/apt/sources.list.d/ubuntu.sources; \
@@ -302,16 +347,37 @@ RUN set -eux; \
         ports_bootstrap="$(printf '%s' "${UBUNTU_APT_PORTS_FALLBACK_MIRROR}" | sed 's|^https://|http://|')"; \
         sed -i \
             -e "s|URIs: ${bootstrap_archive_uris}|URIs: ${archive_uris}|g" \
+            -e "s|URIs: ${archive_bootstrap}|URIs: ${UBUNTU_APT_FALLBACK_MIRROR}|g" \
             -e "s|URIs: ${ports_bootstrap}|URIs: ${UBUNTU_APT_PORTS_FALLBACK_MIRROR}|g" \
             -e "s|URIs: http://security.ubuntu.com/ubuntu/|URIs: https://security.ubuntu.com/ubuntu|g" \
             -e "s|URIs: http://security.ubuntu.com/ubuntu|URIs: https://security.ubuntu.com/ubuntu|g" \
             "${sources}"; \
     }; \
+    use_ubuntu_apt_fallback_sources() { \
+        sources=/etc/apt/sources.list.d/ubuntu.sources; \
+        bootstrap_mirror="$(printf '%s' "${UBUNTU_APT_MIRROR}" | sed 's|^https://|http://|')"; \
+        archive_bootstrap="$(printf '%s' "${UBUNTU_APT_FALLBACK_MIRROR}" | sed 's|^https://|http://|')"; \
+        bootstrap_archive_uris="${bootstrap_mirror}"; \
+        if [ "${bootstrap_mirror}" != "${archive_bootstrap}" ]; then bootstrap_archive_uris="${bootstrap_archive_uris} ${archive_bootstrap}"; fi; \
+        archive_uris="${UBUNTU_APT_MIRROR}"; \
+        if [ "${UBUNTU_APT_MIRROR}" != "${UBUNTU_APT_FALLBACK_MIRROR}" ]; then archive_uris="${archive_uris} ${UBUNTU_APT_FALLBACK_MIRROR}"; fi; \
+        sed -i \
+            -e "s|URIs: ${bootstrap_archive_uris}|URIs: ${archive_bootstrap}|g" \
+            -e "s|URIs: ${archive_uris}|URIs: ${UBUNTU_APT_FALLBACK_MIRROR}|g" \
+            "${sources}"; \
+    }; \
+    apt_get_update_with_fallback() { \
+        if ! apt-get update "$@"; then \
+            echo "Ubuntu mirror list unavailable; retrying apt update with ${UBUNTU_APT_FALLBACK_MIRROR}" >&2; \
+            use_ubuntu_apt_fallback_sources; \
+            apt-get update "$@"; \
+        fi; \
+    }; \
     configure_ubuntu_apt_sources \
-    && apt-get update -y \
+    && apt_get_update_with_fallback -y \
     && apt-get install --no-install-recommends --yes ca-certificates \
     && harden_ubuntu_apt_sources \
-    && apt-get update -y \
+    && apt_get_update_with_fallback -y \
     && apt-get upgrade -y \
     && apt-get install --no-install-recommends --yes \
         gettext-base socat xvfb x11vnc sshpass openssh-client telnet iputils-ping \

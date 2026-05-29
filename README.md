@@ -113,7 +113,7 @@ For dual mode (live + paper simultaneously):
 |----------|-------------|---------|
 | `TWOFA_DEVICE` | 2FA device name (`IB Key`, `Mobile Authenticator app`) | — |
 | `TWOFACTOR_CODE` | TOTP base32 secret (for automated code entry) | — |
-| `TOTP_PROVIDER` | TOTP generator command (`oathtool`) | `oathtool` |
+| `TOTP_PROVIDER` | TOTP generator (`builtin` or `oathtool`) | `builtin` |
 | `TWOFA_TIMEOUT_ACTION` | `restart` or `exit` on 2FA timeout | `restart` |
 | `TWOFA_EXIT_INTERVAL` | Seconds to wait for 2FA approval | `180` |
 | `RELOGIN_AFTER_TWOFA_TIMEOUT` | `yes` to retry login on timeout | `yes` |
@@ -173,7 +173,7 @@ Recommended TOTP settings:
 
 ```env
 TZ=Etc/UTC
-TOTP_PROVIDER=oathtool
+TOTP_PROVIDER=builtin
 ```
 
 You can verify the rendered container environment with dummy credentials:
@@ -203,7 +203,7 @@ Wire protocol is identical to IBC — line-based, `COMMAND\n` → `OK message\n`
 - [x] Login automation (IB API mode selection, trading mode, credentials, login button)
 - [x] 2FA device selection (IB Key, Mobile Authenticator)
 - [x] 2FA via IB Key mobile push (wait for approval, timeout with retry)
-- [x] 2FA via TOTP code (oathtool integration, configurable provider)
+- [x] 2FA via TOTP code (built-in RFC 6238 generator, oathtool fallback)
 - [x] Session conflict handling (primary/secondary/primaryoverride)
 - [x] Post-login API configuration via Global Configuration dialog
   - Master Client ID
@@ -223,7 +223,6 @@ Wire protocol is identical to IBC — line-based, `COMMAND\n` → `OK message\n`
 ## What's not yet implemented
 
 - [ ] AT-SPI accessibility tree fallback (v2)
-- [ ] Built-in TOTP generation (v3, currently shells out to oathtool)
 - [ ] OCR verification (v2)
 - [ ] API port override
 - [ ] Trusted API client IPs configuration

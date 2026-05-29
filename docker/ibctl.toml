@@ -12,8 +12,8 @@ trading_mode = "paper"
 # paper.tws_userid = ""    # set via TWS_USERID_PAPER env var
 
 [twofa]
-# "oathtool" (shells out) or "builtin" (not yet implemented)
-provider = "oathtool"
+# "builtin" uses ibctl's RFC 6238 generator; "oathtool" shells out as fallback
+provider = "builtin"
 # name of env var holding TOTP secret
 secret_env = "TWOFACTOR_CODE" # pragma: allowlist secret
 # "restart" (re-login) or "exit" (shutdown)

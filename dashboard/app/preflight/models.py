@@ -103,7 +103,7 @@ class TwoFaConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     secret_env: str = "TWOFACTOR_CODE"
-    provider: TotpProvider = "oathtool"
+    provider: TotpProvider = "builtin"
     timeout_action: TwoFaTimeoutAction = "restart"
     exit_interval: int = Field(default=180, ge=0)
     device: str = ""

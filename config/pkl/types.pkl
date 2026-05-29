@@ -89,7 +89,7 @@ class TwoFaConfig {
   /// Name of env var holding the TOTP secret (must be an env var name, not a secret value)
   secretEnv: String(matches(Regex("^[A-Z][A-Z0-9_]*$"))) = "TWOFACTOR_CODE"
   /// TOTP provider (env: TOTP_PROVIDER)
-  provider: TotpProvider = "oathtool"
+  provider: TotpProvider = "builtin"
   /// Action on 2FA timeout (env: TWOFA_TIMEOUT_ACTION)
   timeoutAction: TwoFaTimeoutAction = "restart"
   /// Max seconds to wait for 2FA approval.

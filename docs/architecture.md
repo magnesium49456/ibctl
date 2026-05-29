@@ -118,7 +118,7 @@ AUTHENTICATING
   | (agent fills username/password, selects trading mode, clicks Login)
   v
 WAITING_FOR_2FA  [if TOTP configured]
-  | (agent detects 2FA dialog, ibctl generates TOTP via oathtool, agent types it)
+  | (agent detects 2FA dialog, ibctl generates TOTP, agent types it)
   v
 HANDLING_SESSION_CONFLICT  [if detected]
   | (agent clicks OK/Cancel based on configured action)
@@ -157,7 +157,7 @@ ibctl/
 |       +-- agent_client.rs       # HTTP+JSON client over UDS
 |       +-- command_server.rs     # IBC-compatible TCP server
 |       +-- state_machine.rs      # login flow state machine
-|       +-- totp.rs               # TOTP provider trait + oathtool impl
+|       +-- totp.rs               # TOTP provider trait + builtin/oathtool impls
 |       +-- signals.rs            # SIGTERM/SIGINT handling
 |       +-- handlers/
 |           +-- mod.rs            # DialogHandler trait
@@ -210,7 +210,7 @@ username = "myuser_paper"   # only needed for dual mode
 
 [twofa]
 secret_env = "TWOFACTOR_CODE"  # env var name containing TOTP secret
-provider = "oathtool"          # oathtool | builtin (v3)
+provider = "builtin"           # builtin | oathtool
 timeout_action = "restart"     # restart | exit
 timeout_seconds = 180
 
@@ -265,7 +265,7 @@ All env vars override their corresponding config file keys.
 | Variable | Config Key | Description | Default |
 |----------|-----------|-------------|---------|
 | `TWOFACTOR_CODE` / `_FILE` | -- | TOTP base32 secret (env only) | optional |
-| `TOTP_PROVIDER` | `twofa.provider` | `oathtool` or `builtin` | `oathtool` |
+| `TOTP_PROVIDER` | `twofa.provider` | `builtin` or `oathtool` | `builtin` |
 | `TWOFA_DEVICE` | -- | 2FA device name (`IB Key`, `Mobile Authenticator app`) | -- |
 | `TWOFA_TIMEOUT_ACTION` | `twofa.timeout_action` | `restart`/`exit` on 2FA timeout | `restart` |
 | `TWOFA_EXIT_INTERVAL` | `twofa.timeout_seconds` | Seconds to wait for 2FA | `180` |

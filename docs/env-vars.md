@@ -46,7 +46,7 @@ All other env vars mirror TOML fields. Grouped by section below.
 
 | Variable | TOML path | Default |
 |---|---|---|
-| `TOTP_PROVIDER` | `twofa.provider` | `"oathtool"` |
+| `TOTP_PROVIDER` | `twofa.provider` | `"builtin"` |
 | `TWOFA_TIMEOUT_ACTION` | `twofa.timeout_action` | `"restart"` |
 | `TWOFA_EXIT_INTERVAL` | `twofa.exit_interval` | `180` (seconds) |
 | `TWOFA_DEVICE` | `twofa.device` | `""` |

@@ -2916,7 +2916,7 @@ login_dialog_timeout_secs = 0
     }
 
     // ----------------------------------------------------------------
-    // ConfiguringApi: skip-to-Connected when no settings to apply
+    // ConfiguringApi: retry when default API settings cannot be applied
     //
     // Note: the fail-closed path for ConfiguringApi (retry exhaustion ⇒
     // Restarting) is exercised by production logs during the 2026-04-16
@@ -2928,10 +2928,10 @@ login_dialog_timeout_secs = 0
     // ----------------------------------------------------------------
 
     #[tokio::test]
-    async fn test_configure_api_no_settings_advances_to_connected() {
-        // Behavior contract: when there are no API settings to apply, skip the
-        // config dialog entirely and advance to Connected. This is the correct
-        // "no-op success" path — distinct from the fail-open we removed.
+    async fn test_configure_api_default_settings_retry_when_dialog_unavailable() {
+        // Behavior contract: API configuration applies the default
+        // instrument-timezone setting, so an unreachable settings dialog must
+        // retry in ConfiguringApi rather than silently advancing to Connected.
         let mock = MockAgent {
             windows: vec![gateway_window()],
             ..Default::default()
@@ -2942,8 +2942,8 @@ login_dialog_timeout_secs = 0
 
         let result = sm.do_configure_api().await.expect("handler should not error");
         assert!(
-            result == State::Connected,
-            "no API settings configured ⇒ skip dialog ⇒ Connected (valid no-op path), got {:?}",
+            result == State::ConfiguringApi,
+            "default API settings require the config dialog; unavailable dialog should retry, got {:?}",
             result
         );
     }

@@ -24,6 +24,8 @@ def render_env_example(cfg) -> str:
         "TWS_PASSWORD_PAPER=your_paper_password",
         "",
         "# Two-factor authentication",
+        "TWOFACTOR_CODE=                 # TOTP secret for non-IB-Key auto-login",
+        f"TOTP_PROVIDER={rt.twofa.provider}             # oathtool | builtin",
         "TWOFA_DEVICE=IB Key               # or \"Mobile Authenticator app\"",
         f"TWOFA_TIMEOUT_ACTION={rt.twofa.timeoutAction}       # restart | exit",
         f"TWOFA_EXIT_INTERVAL={int(rt.twofa.exitInterval)}",

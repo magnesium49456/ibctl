@@ -124,6 +124,14 @@ All knobs also have full operator docs in [docs/hitl-2fa.md](hitl-2fa.md).
 |---|---|---|
 | `TWS_TRUSTED_IPS` | `jts.ini` `[IBGateway] TrustedIPs` | `127.0.0.1` |
 
+## IBC compatibility dialogs (env-only)
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `DISMISS_PASSWORD_EXPIRY_WARNING` | `yes` to dismiss password expiry notice dialogs. | manual |
+| `ACCEPT_BID_ASK_LAST_SIZE_DISPLAY_UPDATE_NOTIFICATION` | `accept`, `defer`, or `ignore` for the bid/ask/last-size display update dialog. | `ignore` |
+| `CONFIRM_CRYPTO_CURRENCY_ORDERS` | `manual`, `transmit`, or `cancel` for cryptocurrency order confirmations. | `manual` |
+
 ## `[logging]`
 
 | Variable | TOML path | Default |

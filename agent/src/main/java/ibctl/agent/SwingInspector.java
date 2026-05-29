@@ -671,6 +671,31 @@ public class SwingInspector {
             sb.append(jsonString(text));
         }
 
+        // Text areas and panes (many IB modal messages live here rather than in JLabels).
+        sb.append("],\"textareas\":[");
+        List<JTextArea> textAreas = new ArrayList<>();
+        collectComponents(window, JTextArea.class, textAreas);
+        first = true;
+        for (JTextArea area : textAreas) {
+            String text = area.getText();
+            if (text == null || text.isEmpty()) continue;
+            if (!first) sb.append(",");
+            first = false;
+            sb.append(jsonString(text));
+        }
+
+        sb.append("],\"textpanes\":[");
+        List<JTextPane> textPanes = new ArrayList<>();
+        collectComponents(window, JTextPane.class, textPanes);
+        first = true;
+        for (JTextPane pane : textPanes) {
+            String text = pane.getText();
+            if (text == null || text.isEmpty()) continue;
+            if (!first) sb.append(",");
+            first = false;
+            sb.append(jsonString(text));
+        }
+
         // Tables (JTable rows — Connection Status window uses this)
         sb.append("],\"tables\":[");
         List<JTable> tables = new ArrayList<>();

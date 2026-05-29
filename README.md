@@ -128,6 +128,9 @@ For dual mode (live + paper simultaneously):
 | `READ_ONLY_API` | `yes` or `no` | — |
 | `BYPASS_WARNING` | `yes` to bypass all order precaution warnings | — |
 | `ALLOW_BLIND_TRADING` | `yes` or `no` | — |
+| `DISMISS_PASSWORD_EXPIRY_WARNING` | `yes` to dismiss password expiry notice dialogs | — |
+| `ACCEPT_BID_ASK_LAST_SIZE_DISPLAY_UPDATE_NOTIFICATION` | `accept`, `defer`, or `ignore` for the market-data display update dialog | `ignore` |
+| `CONFIRM_CRYPTO_CURRENCY_ORDERS` | `manual`, `transmit`, or `cancel` for crypto order confirmations | `manual` |
 | `EXISTING_SESSION_DETECTED_ACTION` | `primary`, `secondary`, `primaryoverride` | `primary` |
 
 ### Scheduling
@@ -219,7 +222,7 @@ Wire protocol is identical to IBC — line-based, `COMMAND\n` → `OK message\n`
   - Gateway API socket port
   - Order precaution bypasses (all 9 checkboxes)
   - Auto-restart / auto-logoff time
-- [x] Dialog auto-dismissal (paper trading warning, SSL reconnect, version notice, tip-of-day)
+- [x] Dialog auto-dismissal (paper trading warning, SSL reconnect, version notice, tip-of-day, and IBC compatibility dialogs)
 - [x] Dual mode (live + paper simultaneously)
 - [x] IBC-compatible TCP command server (STOP, RESTART, RECONNECTDATA, RECONNECTACCOUNT, ENABLEAPI)
 - [x] TOML config file + env var configuration with Docker secrets support

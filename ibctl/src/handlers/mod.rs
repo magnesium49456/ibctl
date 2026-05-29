@@ -7,6 +7,7 @@
 pub mod accept_connection;
 pub mod api_config;
 pub mod gateway_notification;
+pub mod ibc_compat;
 pub mod login;
 pub mod paper_warning;
 pub mod relogin;
@@ -111,11 +112,10 @@ impl DialogHandlerRegistry {
         registry.register(Box::new(relogin::ReloginHandler));
         registry.register(Box::new(ssl_reconnect::SslReconnectHandler));
         registry.register(Box::new(tip_of_day::TipOfDayHandler));
-        registry.register(Box::new(
-            accept_connection::AcceptConnectionHandler::new(
-                config.session.accept_incoming,
-            ),
-        ));
+        registry.register(Box::new(ibc_compat::IbcCompatibilityDialogHandler));
+        registry.register(Box::new(accept_connection::AcceptConnectionHandler::new(
+            config.session.accept_incoming,
+        )));
         registry.register(Box::new(paper_warning::PaperWarningHandler));
         registry.register(Box::new(version_notice::VersionNoticeHandler));
         // Catch-all for Gateway notification dialogs (lowest priority)
@@ -148,7 +148,16 @@ impl DialogHandlerRegistry {
                     window.title,
                     window.id
                 );
-                return Some(handler.handle(client, window).await);
+                let result = handler.handle(client, window).await;
+                if matches!(result, Ok(HandlerResult::NotApplicable)) {
+                    log::debug!(
+                        "Handler '{}' declined window '{}' after inspection",
+                        handler.name(),
+                        window.title
+                    );
+                    continue;
+                }
+                return Some(result);
             }
         }
         None

@@ -11,12 +11,15 @@
 ARG IB_GATEWAY_VERSION=10.45.1b
 ARG IB_GATEWAY_CHANNEL=latest
 ARG IBCTL_VERSION=""
+# Docker's ubuntu:latest tag tracks the latest LTS release; use
+# --build-arg UBUNTU_IMAGE_TAG=24.04 to pin a specific LTS for repeatability.
+ARG UBUNTU_IMAGE_TAG=latest
 
 ##############################################################################
 # Stage 1: Setup — download and install IB Gateway
 # Follows gnzsnz/ib-gateway-docker's exact process (minus IBC)
 ##############################################################################
-FROM ubuntu:24.04 AS setup
+FROM ubuntu:${UBUNTU_IMAGE_TAG} AS setup
 
 ARG IB_GATEWAY_VERSION
 ARG IB_GATEWAY_CHANNEL
@@ -40,10 +43,10 @@ WORKDIR /tmp/setup
 #  2) Switch all sources to HTTPS (archive.ubuntu.com HTTPS is CDN-backed and
 #     reliable). From now on package fetches are authenticated + integrity-
 #     checked via TLS.
-RUN sed -i 's|http://archive.ubuntu.com|http://mirror.csclub.uwaterloo.ca|g; s|http://security.ubuntu.com|http://mirror.csclub.uwaterloo.ca|g' /etc/apt/sources.list.d/ubuntu.sources \
+RUN sed -i 's|http://archive.ubuntu.com|http://mirror.csclub.uwaterloo.ca|g; s|http://security.ubuntu.com|http://mirror.csclub.uwaterloo.ca|g; s|http://ports.ubuntu.com/ubuntu-ports|http://mirror.csclub.uwaterloo.ca/ubuntu-ports|g' /etc/apt/sources.list.d/ubuntu.sources \
     && apt-get update -y \
     && apt-get install --no-install-recommends --yes ca-certificates \
-    && sed -i 's|http://mirror.csclub.uwaterloo.ca|https://archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources \
+    && sed -i 's|http://mirror.csclub.uwaterloo.ca/ubuntu-ports|https://ports.ubuntu.com/ubuntu-ports|g; s|http://mirror.csclub.uwaterloo.ca|https://archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources \
     && apt-get update -y \
     && apt-get install --no-install-recommends --yes curl \
     && apt-get clean && rm -rf /var/lib/apt/lists/* \
@@ -76,13 +79,13 @@ COPY docker/jts.ini.tmpl /root/Jts/jts.ini.tmpl
 ##############################################################################
 # Stage 2a: Download pre-built ibctl binaries (if IBCTL_VERSION is set)
 ##############################################################################
-FROM ubuntu:24.04 AS prebuilt-downloader
+FROM ubuntu:${UBUNTU_IMAGE_TAG} AS prebuilt-downloader
 ARG IBCTL_VERSION
 # Two-phase mirror setup (see Stage 1 for rationale)
-RUN sed -i 's|http://archive.ubuntu.com|http://mirror.csclub.uwaterloo.ca|g; s|http://security.ubuntu.com|http://mirror.csclub.uwaterloo.ca|g' /etc/apt/sources.list.d/ubuntu.sources \
+RUN sed -i 's|http://archive.ubuntu.com|http://mirror.csclub.uwaterloo.ca|g; s|http://security.ubuntu.com|http://mirror.csclub.uwaterloo.ca|g; s|http://ports.ubuntu.com/ubuntu-ports|http://mirror.csclub.uwaterloo.ca/ubuntu-ports|g' /etc/apt/sources.list.d/ubuntu.sources \
     && apt-get update -qq \
     && apt-get install -y -qq --no-install-recommends ca-certificates \
-    && sed -i 's|http://mirror.csclub.uwaterloo.ca|https://archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources \
+    && sed -i 's|http://mirror.csclub.uwaterloo.ca/ubuntu-ports|https://ports.ubuntu.com/ubuntu-ports|g; s|http://mirror.csclub.uwaterloo.ca|https://archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources \
     && apt-get update -qq \
     && apt-get install -y -qq --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
@@ -127,7 +130,7 @@ RUN mkdir -p target/classes \
 # Stage 3: Production image
 # Same base + packages as gnzsnz, minus IBC
 ##############################################################################
-FROM ubuntu:24.04
+FROM ubuntu:${UBUNTU_IMAGE_TAG}
 
 ARG IB_GATEWAY_VERSION
 ARG USER_ID=1000
@@ -140,6 +143,7 @@ ENV HOME=/home/ibgateway \
     TWS_MAJOR_VRSN=${IB_GATEWAY_VERSION} \
     TWS_PATH=/home/ibgateway/Jts \
     GATEWAY_OR_TWS=gateway \
+    JAVA_PATH=/usr/local/zulu17 \
     NO_AT_BRIDGE=1
 
 # Copy Gateway + JRE from setup stage (same as gnzsnz)
@@ -149,10 +153,10 @@ COPY --from=setup /root/Jts /home/ibgateway/Jts
 # Install runtime packages + Python for dashboard.
 # Two-phase mirror: csclub HTTP → install ca-certificates → switch to
 # archive.ubuntu.com HTTPS → install the rest. See Stage 1 for rationale.
-RUN sed -i 's|http://archive.ubuntu.com|http://mirror.csclub.uwaterloo.ca|g; s|http://security.ubuntu.com|http://mirror.csclub.uwaterloo.ca|g' /etc/apt/sources.list.d/ubuntu.sources \
+RUN sed -i 's|http://archive.ubuntu.com|http://mirror.csclub.uwaterloo.ca|g; s|http://security.ubuntu.com|http://mirror.csclub.uwaterloo.ca|g; s|http://ports.ubuntu.com/ubuntu-ports|http://mirror.csclub.uwaterloo.ca/ubuntu-ports|g' /etc/apt/sources.list.d/ubuntu.sources \
     && apt-get update -y \
     && apt-get install --no-install-recommends --yes ca-certificates \
-    && sed -i 's|http://mirror.csclub.uwaterloo.ca|https://archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources \
+    && sed -i 's|http://mirror.csclub.uwaterloo.ca/ubuntu-ports|https://ports.ubuntu.com/ubuntu-ports|g; s|http://mirror.csclub.uwaterloo.ca|https://archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources \
     && apt-get update -y \
     && apt-get upgrade -y \
     && apt-get install --no-install-recommends --yes \

@@ -27,6 +27,14 @@ cd ibctl
 docker build -t ibctl .
 ```
 
+The Dockerfile defaults to `ubuntu:latest`, which the Docker Official Image
+uses for the latest Ubuntu LTS. Add `--pull` when building if you want Docker
+to refresh that base image instead of reusing a local cached copy:
+
+```bash
+docker build --pull -t ibctl .
+```
+
 Create a `docker-compose.yml`:
 
 ```yaml
@@ -262,7 +270,7 @@ jar cfm target/ibctl-agent.jar src/main/resources/META-INF/MANIFEST.MF -C target
 Or use the multi-stage Docker build (no local toolchain needed):
 
 ```bash
-docker build -t ibctl .
+docker build --pull -t ibctl .
 ```
 
 ## License

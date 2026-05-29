@@ -254,7 +254,7 @@ public class MultiplexedServer {
             if ("POST".equals(method) && "/click".equals(subPath)) {
                 String label = extractJsonField(body, "label");
                 if (label == null) return wrapError("Missing 'label' field");
-                return wrapOk(SwingInspector.clickButton(windowId, label));
+                return wrapActionResult(SwingInspector.clickButton(windowId, label));
             }
             if ("POST".equals(method) && "/type".equals(subPath)) {
                 String fieldIndexStr = extractJsonField(body, "fieldIndex");
@@ -263,7 +263,7 @@ public class MultiplexedServer {
                 if (text == null) return wrapError("Missing 'text' field");
                 try {
                     int fieldIndex = Integer.parseInt(fieldIndexStr);
-                    return wrapOk(SwingInspector.typeText(windowId, fieldIndex, text));
+                    return wrapActionResult(SwingInspector.typeText(windowId, fieldIndex, text));
                 } catch (NumberFormatException e) {
                     return wrapError("Invalid fieldIndex");
                 }
@@ -271,26 +271,26 @@ public class MultiplexedServer {
             if ("POST".equals(method) && "/key".equals(subPath)) {
                 String key = extractJsonField(body, "key");
                 if (key == null) return wrapError("Missing 'key' field");
-                return wrapOk(SwingInspector.sendKey(windowId, key));
+                return wrapActionResult(SwingInspector.sendKey(windowId, key));
             }
             if ("POST".equals(method) && "/menu".equals(subPath)) {
                 String menuPath = extractJsonField(body, "path");
                 if (menuPath == null) return wrapError("Missing 'path' field");
-                return wrapOk(SwingInspector.clickMenu(windowId, menuPath));
+                return wrapActionResult(SwingInspector.clickMenu(windowId, menuPath));
             }
             if ("GET".equals(method) && "/tabs".equals(subPath))
                 return wrapOk(SwingInspector.listTabs(windowId));
             if ("POST".equals(method) && "/selectlist".equals(subPath)) {
                 String item = extractJsonField(body, "item");
                 if (item == null) return wrapError("Missing 'item' field");
-                return wrapOk(SwingInspector.selectListItem(windowId, item));
+                return wrapActionResult(SwingInspector.selectListItem(windowId, item));
             }
             if ("POST".equals(method) && "/clickat".equals(subPath)) {
                 String xStr = extractJsonField(body, "x");
                 String yStr = extractJsonField(body, "y");
                 if (xStr == null || yStr == null) return wrapError("Missing 'x' or 'y' field");
                 try {
-                    return wrapOk(SwingInspector.clickAt(windowId, Integer.parseInt(xStr), Integer.parseInt(yStr)));
+                    return wrapActionResult(SwingInspector.clickAt(windowId, Integer.parseInt(xStr), Integer.parseInt(yStr)));
                 } catch (NumberFormatException e) {
                     return wrapError("Invalid x/y coordinates");
                 }
@@ -298,7 +298,7 @@ public class MultiplexedServer {
             if ("POST".equals(method) && "/tree".equals(subPath)) {
                 String node = extractJsonField(body, "node");
                 if (node == null) return wrapError("Missing 'node' field");
-                return wrapOk(SwingInspector.selectTreeNode(windowId, node));
+                return wrapActionResult(SwingInspector.selectTreeNode(windowId, node));
             }
             if ("GET".equals(method) && "/dump".equals(subPath))
                 return wrapOk(SwingInspector.dumpInteractiveComponents(windowId));
@@ -307,7 +307,7 @@ public class MultiplexedServer {
                 if (label == null) return wrapError("Missing 'label' field");
                 String stateStr = extractJsonField(body, "state");
                 Boolean desiredState = stateStr != null ? Boolean.parseBoolean(stateStr) : null;
-                return wrapOk(SwingInspector.setCheckBox(windowId, label, desiredState));
+                return wrapActionResult(SwingInspector.setCheckBox(windowId, label, desiredState));
             }
 
             return wrapError("Unknown endpoint: " + path);
@@ -322,6 +322,23 @@ public class MultiplexedServer {
 
     private static String wrapError(String message) {
         return "{\"ok\":false,\"data\":null,\"error\":" + SwingInspector.jsonString(message) + "}";
+    }
+
+    private static String wrapActionResult(String result) {
+        boolean ok = actionSucceeded(result);
+        return "{\"ok\":" + ok
+                + ",\"data\":" + result
+                + ",\"error\":" + (ok ? "null" : SwingInspector.jsonString("Agent action failed"))
+                + "}";
+    }
+
+    private static boolean actionSucceeded(String result) {
+        return result != null
+                && !result.contains("\"found\":false")
+                && !result.contains("\"typed\":false")
+                && !result.contains("\"sent\":false")
+                && !result.contains("\"clicked\":false")
+                && !result.contains("\"error\":");
     }
 
     static String extractJsonField(String json, String field) {
@@ -547,8 +564,7 @@ public class MultiplexedServer {
         }
 
         // 2FA dialog detection
-        if (titleLower.contains("second factor") || titleLower.contains("security code")
-                || titleLower.contains("ib key authenticat")) {
+        if (isTwofaTitle(titleLower)) {
             emitTwofaEvent(w, title);
         }
 
@@ -580,8 +596,8 @@ public class MultiplexedServer {
                 textFieldCount++;
             } else if (c instanceof JPasswordField) {
                 passwordFieldCount++;
-            } else if (c instanceof JButton) {
-                String text = ((JButton) c).getText();
+            } else if (c instanceof AbstractButton) {
+                String text = ((AbstractButton) c).getText();
                 if (text != null) {
                     String tl = text.toLowerCase();
                     if (tl.contains("log in") || tl.equals("login")) {
@@ -806,14 +822,24 @@ public class MultiplexedServer {
             || findButton(w, "Paper Log In") != null;
     }
 
-    private static javax.swing.JButton findButton(Container c, String text) {
+    private static boolean isTwofaTitle(String titleLower) {
+        return titleLower.contains("second factor")
+                || titleLower.contains("two-factor")
+                || titleLower.contains("2fa")
+                || titleLower.contains("security code")
+                || titleLower.contains("ib key authenticat")
+                || titleLower.contains("ibkr mobile authenticat")
+                || titleLower.contains("mobile authenticator");
+    }
+
+    private static javax.swing.AbstractButton findButton(Container c, String text) {
         for (Component child : c.getComponents()) {
-            if (child instanceof javax.swing.JButton) {
-                javax.swing.JButton btn = (javax.swing.JButton) child;
+            if (child instanceof javax.swing.AbstractButton) {
+                javax.swing.AbstractButton btn = (javax.swing.AbstractButton) child;
                 if (text.equals(btn.getText())) return btn;
             }
             if (child instanceof Container) {
-                javax.swing.JButton found = findButton((Container) child, text);
+                javax.swing.AbstractButton found = findButton((Container) child, text);
                 if (found != null) return found;
             }
         }

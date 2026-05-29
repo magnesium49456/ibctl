@@ -153,16 +153,22 @@ impl DialogHandler for LoginHandler {
             }
 
             // Step 3: Fill username
-            client
+            let username_typed = client
                 .type_text(window.id, USERNAME_FIELD, &self.username)
                 .await
                 .map_err(HandlerError::AgentError)?;
+            if !username_typed {
+                return Ok(HandlerResult::Error("Username field not found or not writable".into()));
+            }
 
             // Step 4: Fill password
-            client
+            let password_typed = client
                 .type_text(window.id, PASSWORD_FIELD, self.password.expose_secret())
                 .await
                 .map_err(HandlerError::AgentError)?;
+            if !password_typed {
+                return Ok(HandlerResult::Error("Password field not found or not writable".into()));
+            }
 
             // Step 5: Click the login button — try expected label first
             let button_labels: &[&str] = match self.trading_mode {

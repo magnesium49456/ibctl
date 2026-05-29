@@ -198,7 +198,7 @@ public class HttpApi {
                 String label = extractJsonField(body, "label");
                 if (label == null) return wrapError("Missing 'label' field");
                 String result = SwingInspector.clickButton(windowId, label);
-                return wrapOk(result);
+                return wrapActionResult(result);
             }
 
             // POST /windows/{id}/type
@@ -214,7 +214,7 @@ public class HttpApi {
                     return wrapError("Invalid fieldIndex");
                 }
                 String result = SwingInspector.typeText(windowId, fieldIndex, text);
-                return wrapOk(result);
+                return wrapActionResult(result);
             }
 
             // POST /windows/{id}/key
@@ -222,7 +222,7 @@ public class HttpApi {
                 String key = extractJsonField(body, "key");
                 if (key == null) return wrapError("Missing 'key' field");
                 String result = SwingInspector.sendKey(windowId, key);
-                return wrapOk(result);
+                return wrapActionResult(result);
             }
 
             // POST /windows/{id}/menu — navigate and click a menu item by path
@@ -230,7 +230,7 @@ public class HttpApi {
                 String menuPath = extractJsonField(body, "path");
                 if (menuPath == null) return wrapError("Missing 'path' field");
                 String result = SwingInspector.clickMenu(windowId, menuPath);
-                return wrapOk(result);
+                return wrapActionResult(result);
             }
 
             // GET /windows/{id}/tabs — list JTabbedPane tab titles (client IDs)
@@ -244,7 +244,7 @@ public class HttpApi {
                 String item = extractJsonField(body, "item");
                 if (item == null) return wrapError("Missing 'item' field");
                 String result = SwingInspector.selectListItem(windowId, item);
-                return wrapOk(result);
+                return wrapActionResult(result);
             }
 
             // POST /windows/{id}/clickat — click at x,y coordinates relative to window
@@ -256,7 +256,7 @@ public class HttpApi {
                     int x = Integer.parseInt(xStr);
                     int y = Integer.parseInt(yStr);
                     String result = SwingInspector.clickAt(windowId, x, y);
-                    return wrapOk(result);
+                    return wrapActionResult(result);
                 } catch (NumberFormatException e) {
                     return wrapError("Invalid x/y coordinates");
                 }
@@ -267,7 +267,7 @@ public class HttpApi {
                 String node = extractJsonField(body, "node");
                 if (node == null) return wrapError("Missing 'node' field");
                 String result = SwingInspector.selectTreeNode(windowId, node);
-                return wrapOk(result);
+                return wrapActionResult(result);
             }
 
             // GET /windows/{id}/dump — dump all interactive components for diagnostics
@@ -283,7 +283,7 @@ public class HttpApi {
                 String stateStr = extractJsonField(body, "state");
                 Boolean desiredState = stateStr != null ? Boolean.parseBoolean(stateStr) : null;
                 String result = SwingInspector.setCheckBox(windowId, label, desiredState);
-                return wrapOk(result);
+                return wrapActionResult(result);
             }
 
             return wrapError("Unknown endpoint: " + path);
@@ -319,6 +319,23 @@ public class HttpApi {
 
     private static String wrapError(String message) {
         return "{\"ok\":false,\"data\":null,\"error\":" + SwingInspector.jsonString(message) + "}";
+    }
+
+    private static String wrapActionResult(String result) {
+        boolean ok = actionSucceeded(result);
+        return "{\"ok\":" + ok
+                + ",\"data\":" + result
+                + ",\"error\":" + (ok ? "null" : SwingInspector.jsonString("Agent action failed"))
+                + "}";
+    }
+
+    private static boolean actionSucceeded(String result) {
+        return result != null
+                && !result.contains("\"found\":false")
+                && !result.contains("\"typed\":false")
+                && !result.contains("\"sent\":false")
+                && !result.contains("\"clicked\":false")
+                && !result.contains("\"error\":");
     }
 
     /**

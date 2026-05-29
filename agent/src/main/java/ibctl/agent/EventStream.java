@@ -243,19 +243,19 @@ public class EventStream {
     }
 
     /**
-     * Find a JButton by label text in a container hierarchy.
+     * Find an AbstractButton by label text in a container hierarchy.
      * Matches IBC's SwingUtils.findButton() pattern.
      */
-    private static javax.swing.JButton findButton(Container c, String text) {
+    private static javax.swing.AbstractButton findButton(Container c, String text) {
         for (Component child : c.getComponents()) {
-            if (child instanceof javax.swing.JButton) {
-                javax.swing.JButton btn = (javax.swing.JButton) child;
+            if (child instanceof javax.swing.AbstractButton) {
+                javax.swing.AbstractButton btn = (javax.swing.AbstractButton) child;
                 if (text.equals(btn.getText())) {
                     return btn;
                 }
             }
             if (child instanceof Container) {
-                javax.swing.JButton found = findButton((Container) child, text);
+                javax.swing.AbstractButton found = findButton((Container) child, text);
                 if (found != null) return found;
             }
         }

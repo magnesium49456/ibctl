@@ -14,6 +14,9 @@ ARG IBCTL_VERSION=""
 # Docker's ubuntu:latest tag tracks the latest LTS release; use
 # --build-arg UBUNTU_IMAGE_TAG=24.04 to pin a specific LTS for repeatability.
 ARG UBUNTU_IMAGE_TAG=latest
+ARG UBUNTU_APT_MIRROR=mirror://mirrors.ubuntu.com/mirrors.txt
+ARG UBUNTU_APT_FALLBACK_MIRROR=https://archive.ubuntu.com/ubuntu
+ARG UBUNTU_APT_PORTS_FALLBACK_MIRROR=https://ports.ubuntu.com/ubuntu-ports
 
 ##############################################################################
 # Stage 1: Setup — download and install IB Gateway
@@ -27,6 +30,9 @@ ARG TARGETARCH
 ARG DEBIAN_FRONTEND=noninteractive
 ARG IB_GATEWAY_REPO="https://github.com/gnzsnz/ib-gateway-docker"
 ARG IB_GATEWAY_API_REPO="https://api.github.com/repos/gnzsnz/ib-gateway-docker"
+ARG UBUNTU_APT_MIRROR
+ARG UBUNTU_APT_FALLBACK_MIRROR
+ARG UBUNTU_APT_PORTS_FALLBACK_MIRROR
 # aarch64 JDK (only used on ARM)
 ARG ZULU_NAME=zulu17.60.17-ca-fx-jre17.0.16-linux_aarch64
 ARG ZULU_FILE=${ZULU_NAME}.tar.gz
@@ -34,18 +40,58 @@ ARG ZULU_URL=https://cdn.azul.com/zulu/bin/${ZULU_FILE}
 
 WORKDIR /tmp/setup
 
-# Two-phase mirror setup:
-#  1) Install ca-certificates from a reliable HTTP mirror (csclub.uwaterloo.ca)
-#     — we can't use HTTPS yet because the base image has no CA trust store,
-#     and archive.ubuntu.com HTTP has intermittent regional outages (zion,
-#     2026-04-16).
-#  2) Switch all sources to HTTPS (archive.ubuntu.com HTTPS is CDN-backed and
-#     reliable). From now on package fetches are authenticated + integrity-
-#     checked via TLS.
-RUN sed -i 's|http://archive.ubuntu.com|http://mirror.csclub.uwaterloo.ca|g; s|http://security.ubuntu.com|http://mirror.csclub.uwaterloo.ca|g; s|http://ports.ubuntu.com/ubuntu-ports|http://mirror.csclub.uwaterloo.ca/ubuntu-ports|g' /etc/apt/sources.list.d/ubuntu.sources \
+# Official Ubuntu mirror setup:
+#  1) Bootstrap ca-certificates via Ubuntu's mirror list with an HTTP fallback.
+#  2) Switch archive sources to the configured mirror plus HTTPS fallback.
+# Security updates stay on the official security.ubuntu.com source.
+RUN set -eux; \
+    configure_ubuntu_apt_sources() { \
+        sources=/etc/apt/sources.list.d/ubuntu.sources; \
+        bootstrap_mirror="$(printf '%s' "${UBUNTU_APT_MIRROR}" | sed 's|^https://|http://|')"; \
+        archive_bootstrap="$(printf '%s' "${UBUNTU_APT_FALLBACK_MIRROR}" | sed 's|^https://|http://|')"; \
+        bootstrap_archive_uris="${bootstrap_mirror}"; \
+        if [ "${bootstrap_mirror}" != "${archive_bootstrap}" ]; then bootstrap_archive_uris="${bootstrap_archive_uris} ${archive_bootstrap}"; fi; \
+        archive_uris="${UBUNTU_APT_MIRROR}"; \
+        if [ "${UBUNTU_APT_MIRROR}" != "${UBUNTU_APT_FALLBACK_MIRROR}" ]; then archive_uris="${archive_uris} ${UBUNTU_APT_FALLBACK_MIRROR}"; fi; \
+        ports_bootstrap="$(printf '%s' "${UBUNTU_APT_PORTS_FALLBACK_MIRROR}" | sed 's|^https://|http://|')"; \
+        ports_arch=0; \
+        case "${TARGETARCH:-}" in arm|arm64) ports_arch=1 ;; esac; \
+        if [ "${ports_arch}" = 1 ] && grep -q 'URIs: .*ports.ubuntu.com/ubuntu-ports' "${sources}"; then \
+            sed -i \
+                -e "s|URIs: http://ports.ubuntu.com/ubuntu-ports/|URIs: ${ports_bootstrap}|g" \
+                -e "s|URIs: http://ports.ubuntu.com/ubuntu-ports|URIs: ${ports_bootstrap}|g" \
+                -e "s|URIs: https://ports.ubuntu.com/ubuntu-ports/|URIs: ${UBUNTU_APT_PORTS_FALLBACK_MIRROR}|g" \
+                -e "s|URIs: https://ports.ubuntu.com/ubuntu-ports|URIs: ${UBUNTU_APT_PORTS_FALLBACK_MIRROR}|g" \
+                "${sources}"; \
+        else \
+            sed -i \
+                -e "s|URIs: http://archive.ubuntu.com/ubuntu/|URIs: ${bootstrap_archive_uris}|g" \
+                -e "s|URIs: http://archive.ubuntu.com/ubuntu|URIs: ${bootstrap_archive_uris}|g" \
+                -e "s|URIs: https://archive.ubuntu.com/ubuntu/|URIs: ${archive_uris}|g" \
+                -e "s|URIs: https://archive.ubuntu.com/ubuntu|URIs: ${archive_uris}|g" \
+                "${sources}"; \
+        fi; \
+    }; \
+    harden_ubuntu_apt_sources() { \
+        sources=/etc/apt/sources.list.d/ubuntu.sources; \
+        bootstrap_mirror="$(printf '%s' "${UBUNTU_APT_MIRROR}" | sed 's|^https://|http://|')"; \
+        archive_bootstrap="$(printf '%s' "${UBUNTU_APT_FALLBACK_MIRROR}" | sed 's|^https://|http://|')"; \
+        bootstrap_archive_uris="${bootstrap_mirror}"; \
+        if [ "${bootstrap_mirror}" != "${archive_bootstrap}" ]; then bootstrap_archive_uris="${bootstrap_archive_uris} ${archive_bootstrap}"; fi; \
+        archive_uris="${UBUNTU_APT_MIRROR}"; \
+        if [ "${UBUNTU_APT_MIRROR}" != "${UBUNTU_APT_FALLBACK_MIRROR}" ]; then archive_uris="${archive_uris} ${UBUNTU_APT_FALLBACK_MIRROR}"; fi; \
+        ports_bootstrap="$(printf '%s' "${UBUNTU_APT_PORTS_FALLBACK_MIRROR}" | sed 's|^https://|http://|')"; \
+        sed -i \
+            -e "s|URIs: ${bootstrap_archive_uris}|URIs: ${archive_uris}|g" \
+            -e "s|URIs: ${ports_bootstrap}|URIs: ${UBUNTU_APT_PORTS_FALLBACK_MIRROR}|g" \
+            -e "s|URIs: http://security.ubuntu.com/ubuntu/|URIs: https://security.ubuntu.com/ubuntu|g" \
+            -e "s|URIs: http://security.ubuntu.com/ubuntu|URIs: https://security.ubuntu.com/ubuntu|g" \
+            "${sources}"; \
+    }; \
+    configure_ubuntu_apt_sources \
     && apt-get update -y \
     && apt-get install --no-install-recommends --yes ca-certificates \
-    && sed -i 's|http://mirror.csclub.uwaterloo.ca/ubuntu-ports|https://ports.ubuntu.com/ubuntu-ports|g; s|http://mirror.csclub.uwaterloo.ca|https://archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources \
+    && harden_ubuntu_apt_sources \
     && apt-get update -y \
     && apt-get install --no-install-recommends --yes curl \
     && apt-get clean && rm -rf /var/lib/apt/lists/* \
@@ -95,11 +141,59 @@ COPY docker/jts.ini.tmpl /root/Jts/jts.ini.tmpl
 ##############################################################################
 FROM ubuntu:${UBUNTU_IMAGE_TAG} AS prebuilt-downloader
 ARG IBCTL_VERSION
-# Two-phase mirror setup (see Stage 1 for rationale)
-RUN sed -i 's|http://archive.ubuntu.com|http://mirror.csclub.uwaterloo.ca|g; s|http://security.ubuntu.com|http://mirror.csclub.uwaterloo.ca|g; s|http://ports.ubuntu.com/ubuntu-ports|http://mirror.csclub.uwaterloo.ca/ubuntu-ports|g' /etc/apt/sources.list.d/ubuntu.sources \
+ARG TARGETARCH
+ARG UBUNTU_APT_MIRROR
+ARG UBUNTU_APT_FALLBACK_MIRROR
+ARG UBUNTU_APT_PORTS_FALLBACK_MIRROR
+# Official Ubuntu mirror setup (see Stage 1 for rationale)
+RUN set -eux; \
+    configure_ubuntu_apt_sources() { \
+        sources=/etc/apt/sources.list.d/ubuntu.sources; \
+        bootstrap_mirror="$(printf '%s' "${UBUNTU_APT_MIRROR}" | sed 's|^https://|http://|')"; \
+        archive_bootstrap="$(printf '%s' "${UBUNTU_APT_FALLBACK_MIRROR}" | sed 's|^https://|http://|')"; \
+        bootstrap_archive_uris="${bootstrap_mirror}"; \
+        if [ "${bootstrap_mirror}" != "${archive_bootstrap}" ]; then bootstrap_archive_uris="${bootstrap_archive_uris} ${archive_bootstrap}"; fi; \
+        archive_uris="${UBUNTU_APT_MIRROR}"; \
+        if [ "${UBUNTU_APT_MIRROR}" != "${UBUNTU_APT_FALLBACK_MIRROR}" ]; then archive_uris="${archive_uris} ${UBUNTU_APT_FALLBACK_MIRROR}"; fi; \
+        ports_bootstrap="$(printf '%s' "${UBUNTU_APT_PORTS_FALLBACK_MIRROR}" | sed 's|^https://|http://|')"; \
+        ports_arch=0; \
+        case "${TARGETARCH:-}" in arm|arm64) ports_arch=1 ;; esac; \
+        if [ "${ports_arch}" = 1 ] && grep -q 'URIs: .*ports.ubuntu.com/ubuntu-ports' "${sources}"; then \
+            sed -i \
+                -e "s|URIs: http://ports.ubuntu.com/ubuntu-ports/|URIs: ${ports_bootstrap}|g" \
+                -e "s|URIs: http://ports.ubuntu.com/ubuntu-ports|URIs: ${ports_bootstrap}|g" \
+                -e "s|URIs: https://ports.ubuntu.com/ubuntu-ports/|URIs: ${UBUNTU_APT_PORTS_FALLBACK_MIRROR}|g" \
+                -e "s|URIs: https://ports.ubuntu.com/ubuntu-ports|URIs: ${UBUNTU_APT_PORTS_FALLBACK_MIRROR}|g" \
+                "${sources}"; \
+        else \
+            sed -i \
+                -e "s|URIs: http://archive.ubuntu.com/ubuntu/|URIs: ${bootstrap_archive_uris}|g" \
+                -e "s|URIs: http://archive.ubuntu.com/ubuntu|URIs: ${bootstrap_archive_uris}|g" \
+                -e "s|URIs: https://archive.ubuntu.com/ubuntu/|URIs: ${archive_uris}|g" \
+                -e "s|URIs: https://archive.ubuntu.com/ubuntu|URIs: ${archive_uris}|g" \
+                "${sources}"; \
+        fi; \
+    }; \
+    harden_ubuntu_apt_sources() { \
+        sources=/etc/apt/sources.list.d/ubuntu.sources; \
+        bootstrap_mirror="$(printf '%s' "${UBUNTU_APT_MIRROR}" | sed 's|^https://|http://|')"; \
+        archive_bootstrap="$(printf '%s' "${UBUNTU_APT_FALLBACK_MIRROR}" | sed 's|^https://|http://|')"; \
+        bootstrap_archive_uris="${bootstrap_mirror}"; \
+        if [ "${bootstrap_mirror}" != "${archive_bootstrap}" ]; then bootstrap_archive_uris="${bootstrap_archive_uris} ${archive_bootstrap}"; fi; \
+        archive_uris="${UBUNTU_APT_MIRROR}"; \
+        if [ "${UBUNTU_APT_MIRROR}" != "${UBUNTU_APT_FALLBACK_MIRROR}" ]; then archive_uris="${archive_uris} ${UBUNTU_APT_FALLBACK_MIRROR}"; fi; \
+        ports_bootstrap="$(printf '%s' "${UBUNTU_APT_PORTS_FALLBACK_MIRROR}" | sed 's|^https://|http://|')"; \
+        sed -i \
+            -e "s|URIs: ${bootstrap_archive_uris}|URIs: ${archive_uris}|g" \
+            -e "s|URIs: ${ports_bootstrap}|URIs: ${UBUNTU_APT_PORTS_FALLBACK_MIRROR}|g" \
+            -e "s|URIs: http://security.ubuntu.com/ubuntu/|URIs: https://security.ubuntu.com/ubuntu|g" \
+            -e "s|URIs: http://security.ubuntu.com/ubuntu|URIs: https://security.ubuntu.com/ubuntu|g" \
+            "${sources}"; \
+    }; \
+    configure_ubuntu_apt_sources \
     && apt-get update -qq \
     && apt-get install -y -qq --no-install-recommends ca-certificates \
-    && sed -i 's|http://mirror.csclub.uwaterloo.ca/ubuntu-ports|https://ports.ubuntu.com/ubuntu-ports|g; s|http://mirror.csclub.uwaterloo.ca|https://archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources \
+    && harden_ubuntu_apt_sources \
     && apt-get update -qq \
     && apt-get install -y -qq --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
@@ -150,6 +244,10 @@ ARG IB_GATEWAY_VERSION
 ARG USER_ID=1000
 ARG USER_GID=1000
 ARG DEBIAN_FRONTEND=noninteractive
+ARG TARGETARCH
+ARG UBUNTU_APT_MIRROR
+ARG UBUNTU_APT_FALLBACK_MIRROR
+ARG UBUNTU_APT_PORTS_FALLBACK_MIRROR
 
 # Environment (matching gnzsnz conventions)
 ENV HOME=/home/ibgateway \
@@ -164,12 +262,55 @@ COPY --from=setup /usr/local/ /usr/local/
 COPY --from=setup /root/Jts /home/ibgateway/Jts
 
 # Install runtime packages + Python for dashboard.
-# Two-phase mirror: csclub HTTP → install ca-certificates → switch to
-# archive.ubuntu.com HTTPS → install the rest. See Stage 1 for rationale.
-RUN sed -i 's|http://archive.ubuntu.com|http://mirror.csclub.uwaterloo.ca|g; s|http://security.ubuntu.com|http://mirror.csclub.uwaterloo.ca|g; s|http://ports.ubuntu.com/ubuntu-ports|http://mirror.csclub.uwaterloo.ca/ubuntu-ports|g' /etc/apt/sources.list.d/ubuntu.sources \
+# Official Ubuntu mirror setup (see Stage 1 for rationale)
+RUN set -eux; \
+    configure_ubuntu_apt_sources() { \
+        sources=/etc/apt/sources.list.d/ubuntu.sources; \
+        bootstrap_mirror="$(printf '%s' "${UBUNTU_APT_MIRROR}" | sed 's|^https://|http://|')"; \
+        archive_bootstrap="$(printf '%s' "${UBUNTU_APT_FALLBACK_MIRROR}" | sed 's|^https://|http://|')"; \
+        bootstrap_archive_uris="${bootstrap_mirror}"; \
+        if [ "${bootstrap_mirror}" != "${archive_bootstrap}" ]; then bootstrap_archive_uris="${bootstrap_archive_uris} ${archive_bootstrap}"; fi; \
+        archive_uris="${UBUNTU_APT_MIRROR}"; \
+        if [ "${UBUNTU_APT_MIRROR}" != "${UBUNTU_APT_FALLBACK_MIRROR}" ]; then archive_uris="${archive_uris} ${UBUNTU_APT_FALLBACK_MIRROR}"; fi; \
+        ports_bootstrap="$(printf '%s' "${UBUNTU_APT_PORTS_FALLBACK_MIRROR}" | sed 's|^https://|http://|')"; \
+        ports_arch=0; \
+        case "${TARGETARCH:-}" in arm|arm64) ports_arch=1 ;; esac; \
+        if [ "${ports_arch}" = 1 ] && grep -q 'URIs: .*ports.ubuntu.com/ubuntu-ports' "${sources}"; then \
+            sed -i \
+                -e "s|URIs: http://ports.ubuntu.com/ubuntu-ports/|URIs: ${ports_bootstrap}|g" \
+                -e "s|URIs: http://ports.ubuntu.com/ubuntu-ports|URIs: ${ports_bootstrap}|g" \
+                -e "s|URIs: https://ports.ubuntu.com/ubuntu-ports/|URIs: ${UBUNTU_APT_PORTS_FALLBACK_MIRROR}|g" \
+                -e "s|URIs: https://ports.ubuntu.com/ubuntu-ports|URIs: ${UBUNTU_APT_PORTS_FALLBACK_MIRROR}|g" \
+                "${sources}"; \
+        else \
+            sed -i \
+                -e "s|URIs: http://archive.ubuntu.com/ubuntu/|URIs: ${bootstrap_archive_uris}|g" \
+                -e "s|URIs: http://archive.ubuntu.com/ubuntu|URIs: ${bootstrap_archive_uris}|g" \
+                -e "s|URIs: https://archive.ubuntu.com/ubuntu/|URIs: ${archive_uris}|g" \
+                -e "s|URIs: https://archive.ubuntu.com/ubuntu|URIs: ${archive_uris}|g" \
+                "${sources}"; \
+        fi; \
+    }; \
+    harden_ubuntu_apt_sources() { \
+        sources=/etc/apt/sources.list.d/ubuntu.sources; \
+        bootstrap_mirror="$(printf '%s' "${UBUNTU_APT_MIRROR}" | sed 's|^https://|http://|')"; \
+        archive_bootstrap="$(printf '%s' "${UBUNTU_APT_FALLBACK_MIRROR}" | sed 's|^https://|http://|')"; \
+        bootstrap_archive_uris="${bootstrap_mirror}"; \
+        if [ "${bootstrap_mirror}" != "${archive_bootstrap}" ]; then bootstrap_archive_uris="${bootstrap_archive_uris} ${archive_bootstrap}"; fi; \
+        archive_uris="${UBUNTU_APT_MIRROR}"; \
+        if [ "${UBUNTU_APT_MIRROR}" != "${UBUNTU_APT_FALLBACK_MIRROR}" ]; then archive_uris="${archive_uris} ${UBUNTU_APT_FALLBACK_MIRROR}"; fi; \
+        ports_bootstrap="$(printf '%s' "${UBUNTU_APT_PORTS_FALLBACK_MIRROR}" | sed 's|^https://|http://|')"; \
+        sed -i \
+            -e "s|URIs: ${bootstrap_archive_uris}|URIs: ${archive_uris}|g" \
+            -e "s|URIs: ${ports_bootstrap}|URIs: ${UBUNTU_APT_PORTS_FALLBACK_MIRROR}|g" \
+            -e "s|URIs: http://security.ubuntu.com/ubuntu/|URIs: https://security.ubuntu.com/ubuntu|g" \
+            -e "s|URIs: http://security.ubuntu.com/ubuntu|URIs: https://security.ubuntu.com/ubuntu|g" \
+            "${sources}"; \
+    }; \
+    configure_ubuntu_apt_sources \
     && apt-get update -y \
     && apt-get install --no-install-recommends --yes ca-certificates \
-    && sed -i 's|http://mirror.csclub.uwaterloo.ca/ubuntu-ports|https://ports.ubuntu.com/ubuntu-ports|g; s|http://mirror.csclub.uwaterloo.ca|https://archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources \
+    && harden_ubuntu_apt_sources \
     && apt-get update -y \
     && apt-get upgrade -y \
     && apt-get install --no-install-recommends --yes \

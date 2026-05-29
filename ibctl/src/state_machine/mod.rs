@@ -1762,6 +1762,14 @@ impl StateMachine {
     async fn do_reconnecting_session(&mut self) -> Result<State, StateMachineError> {
         let max = self.config.timing.relogin_max_attempts;
 
+        if !self.supervisor.is_running() {
+            log::warn!("ReconnectingSession: JVM is not running — restarting");
+            self.handler_registry.reset();
+            self.abort_client_id_task();
+            self.relogin_attempts = 0;
+            return Ok(State::Restarting);
+        }
+
         // Phase 3: exhausted attempts — cancel and fallback
         if self.relogin_attempts > max {
             log::warn!(

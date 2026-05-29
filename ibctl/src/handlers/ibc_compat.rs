@@ -65,6 +65,7 @@ struct DialogPolicy {
     accept_bid_ask_last_size_update: bool,
     crypto_order_decision: CryptoOrderDecision,
     allow_blind_trading: bool,
+    bypass_order_precautions: bool,
 }
 
 impl DialogPolicy {
@@ -83,6 +84,8 @@ impl DialogPolicy {
             ),
             crypto_order_decision,
             allow_blind_trading: env_yes("ALLOW_BLIND_TRADING"),
+            bypass_order_precautions: env_yes("BYPASS_WARNING")
+                || env_yes("BYPASS_ORDER_PRECAUTIONS"),
         }
     }
 }
@@ -94,6 +97,7 @@ impl Default for DialogPolicy {
             accept_bid_ask_last_size_update: false,
             crypto_order_decision: CryptoOrderDecision::Manual,
             allow_blind_trading: false,
+            bypass_order_precautions: false,
         }
     }
 }
@@ -209,6 +213,13 @@ fn classify_dialog_with_policy(
     if text.contains("trading platform restart automatically") {
         return Some(action("AutoRestartConfirmationDialog", &["OK"]));
     }
+    if (title.contains("restart confirmation")
+        || text.contains("auto-restart")
+        || text.contains("auto logoff"))
+        && (text.contains("restart") || text.contains("logoff"))
+    {
+        return Some(action("AutoLogoffRestartConfirmationDialog", &["Yes", "OK"]));
+    }
     if title.contains("newer version") || text.contains("newer version") {
         return Some(action("NewerVersionDialogHandler", &["OK", "No"]));
     }
@@ -223,6 +234,9 @@ fn classify_dialog_with_policy(
     }
     if text.contains("too many failed login attempts") {
         return Some(action("TooManyFailedLoginAttemptsDialogHandler", &["OK"]));
+    }
+    if title.contains("connection lost") || text.contains("connection lost") {
+        return Some(action("ConnectionLostDialogHandler", &["OK", "Reconnect"]));
     }
     if title.contains("password notice") && policy.dismiss_password_expiry {
         return Some(action("PasswordExpiryWarningFrameHandler", &["OK"]));
@@ -249,6 +263,22 @@ fn classify_dialog_with_policy(
             CryptoOrderDecision::Manual => return None,
         }
     }
+    if (title.contains("order preview") || text.contains("order preview"))
+        && !text.contains("blind trading")
+        && policy.bypass_order_precautions
+    {
+        return Some(action("OrderPreviewDialogHandler", &["Transmit", "Submit", "OK"]));
+    }
+    if (title.contains("precaution")
+        || text.contains("precautionary setting")
+        || text.contains("order precaution"))
+        && policy.bypass_order_precautions
+    {
+        return Some(action(
+            "ApiPrecautionWarningDialog",
+            &["Override and Transmit", "Transmit", "Yes", "OK"],
+        ));
+    }
     if (title.contains("order preview") || text.contains("blind trading"))
         && text.contains("blind trading")
         && policy.allow_blind_trading
@@ -258,8 +288,11 @@ fn classify_dialog_with_policy(
             &["Override and Transmit", "Yes"],
         ));
     }
-    if text.contains("api write access") || text.contains("read-only api") {
-        return Some(action("ReadOnlyApiWarningDialog", &["OK", "Close"]));
+    if title.contains("api client needs write access")
+        || text.contains("api write access")
+        || text.contains("read-only api")
+    {
+        return Some(action("ReadOnlyApiWarningDialog", &["Yes", "OK", "Close"]));
     }
     if text.contains("login handoff") || text.contains("trading login handoff") {
         return Some(action("TradingLoginHandoffDialogHandler", &["OK"]));
@@ -315,6 +348,11 @@ mod tests {
     #[test]
     fn coverage_inventory_tracks_27_plus_ibc_dialogs() {
         assert!(IBC_DIALOG_COVERAGE.len() >= 27);
+        let unique = IBC_DIALOG_COVERAGE
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(unique.len(), IBC_DIALOG_COVERAGE.len());
     }
 
     #[test]
@@ -375,6 +413,74 @@ mod tests {
                 .unwrap()
                 .buttons,
             &["Override and Transmit", "Yes"]
+        );
+    }
+
+    #[test]
+    fn classifies_long_tail_ibc_dialogs() {
+        let policy = DialogPolicy {
+            dismiss_password_expiry: true,
+            accept_bid_ask_last_size_update: true,
+            bypass_order_precautions: true,
+            ..Default::default()
+        };
+
+        let cases = [
+            (
+                "Restart Confirmation",
+                "The platform will auto-restart rather than auto logoff",
+                "AutoLogoffRestartConfirmationDialog",
+            ),
+            (
+                "Warning",
+                "connection lost to IB server",
+                "ConnectionLostDialogHandler",
+            ),
+            ("Password Notice", "", "PasswordExpiryWarningFrameHandler"),
+            (
+                "Notice",
+                "Bid, ask and last size display update",
+                "BidAskLastSizeDisplayUpdateDialogHandler",
+            ),
+            (
+                "Order Preview",
+                "Please review this order preview",
+                "OrderPreviewDialogHandler",
+            ),
+            (
+                "Order Precaution",
+                "This order triggers a precautionary setting",
+                "ApiPrecautionWarningDialog",
+            ),
+            (
+                "API client needs write access action confirmation",
+                "",
+                "ReadOnlyApiWarningDialog",
+            ),
+            (
+                "Trading Login Handoff",
+                "Trading login handoff is required",
+                "TradingLoginHandoffDialogHandler",
+            ),
+        ];
+
+        for (title, text, expected) in cases {
+            assert_eq!(
+                classify_dialog_with_policy(title, text, &policy).unwrap().name,
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn blind_trading_stays_manual_even_when_precautions_are_bypassed() {
+        let policy = DialogPolicy {
+            bypass_order_precautions: true,
+            ..Default::default()
+        };
+
+        assert!(
+            classify_dialog_with_policy("Order Preview", "blind trading", &policy).is_none()
         );
     }
 }

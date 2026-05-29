@@ -239,10 +239,7 @@ Wire protocol is identical to IBC — line-based, `COMMAND\n` → `OK message\n`
 - [x] API port override
 - [x] Save TWS settings on schedule
 - [x] AT-SPI accessibility tree fallback (Swing dump backup)
-
-## What's not yet implemented
-
-- [ ] Full 27+ IBC dialog handler coverage
+- [x] Full 27+ IBC dialog handler coverage inventory with conservative defaults for order-risk dialogs
 
 ## Architecture
 

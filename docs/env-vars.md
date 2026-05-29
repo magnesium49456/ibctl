@@ -113,6 +113,12 @@ All knobs also have full operator docs in [docs/hitl-2fa.md](hitl-2fa.md).
 | `IBCTL_AGENT_SOCKET` | `agent.socket_path` | `/run/ibctl/agent.sock` |
 | `IBCTL_AGENT_TICK_MS` | (internal) | `50` |
 
+## jts.ini bootstrap
+
+| Variable | Destination | Default |
+|---|---|---|
+| `TWS_TRUSTED_IPS` | `jts.ini` `[IBGateway] TrustedIPs` | `127.0.0.1` |
+
 ## `[logging]`
 
 | Variable | TOML path | Default |

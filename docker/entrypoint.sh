@@ -108,6 +108,9 @@ fi
 # Create jts.ini helper — ensures UseSSL=true and API-only mode
 create_jts_ini() {
     local config_dir="$1"
+    local trusted_ips="${TWS_TRUSTED_IPS:-127.0.0.1}"
+    export TWS_TRUSTED_IPS="$trusted_ips"
+
     if [ ! -d "$config_dir" ]; then
         mkdir -p "$config_dir"
     fi
@@ -118,6 +121,12 @@ create_jts_ini() {
             sed -i 's/ReadOnlyApi=.*/ReadOnlyApi=no/' "$config_dir/jts.ini"
         else
             sed -i '/^\[IBGateway\]/a ReadOnlyApi=no' "$config_dir/jts.ini"
+        fi
+        # Keep trusted API client IPs configurable even when reusing persisted settings.
+        if grep -q "^TrustedIPs=" "$config_dir/jts.ini"; then
+            sed -i "s|^TrustedIPs=.*|TrustedIPs=${trusted_ips}|" "$config_dir/jts.ini"
+        else
+            sed -i "/^\[IBGateway\]/a TrustedIPs=${trusted_ips}" "$config_dir/jts.ini"
         fi
         # NOTE: Gateway defaults to Africa/Abidjan (UTC) when running headless
         # and overwrites jts.ini on every login (recreates the file, so chmod
@@ -134,7 +143,7 @@ create_jts_ini() {
             cat > "$config_dir/jts.ini" <<JTSEOF
 [IBGateway]
 WriteDebug=false
-TrustedIPs=127.0.0.1
+TrustedIPs=${trusted_ips}
 ApiOnly=true
 ReadOnlyApi=no
 

@@ -123,6 +123,7 @@ For dual mode (live + paper simultaneously):
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `TWS_ACCEPT_INCOMING` | `accept`, `reject`, or `manual` | `accept` |
+| `TWS_TRUSTED_IPS` | Trusted API client IP allow-list written to `jts.ini` | `127.0.0.1` |
 | `TWS_MASTER_CLIENT_ID` | Master API client ID | — |
 | `READ_ONLY_API` | `yes` or `no` | — |
 | `BYPASS_WARNING` | `yes` to bypass all order precaution warnings | — |
@@ -208,6 +209,7 @@ Wire protocol is identical to IBC — line-based, `COMMAND\n` → `OK message\n`
 - [x] Post-login API configuration via Global Configuration dialog
   - Master Client ID
   - Read-Only API
+  - Trusted API client IPs
   - Order precaution bypasses (all 9 checkboxes)
   - Auto-restart / auto-logoff time
 - [x] Dialog auto-dismissal (paper trading warning, SSL reconnect, version notice, tip-of-day)
@@ -219,13 +221,13 @@ Wire protocol is identical to IBC — line-based, `COMMAND\n` → `OK message\n`
 - [x] Sunday cold restart (weekly full re-auth, mirrors IBC's ColdRestartTime)
 - [x] Connection loss recovery (re-login dialog auto-handled)
 - [x] Daily auto-restart recovery (handler state reset)
+- [x] Trusted API client IPs configuration via `TWS_TRUSTED_IPS`
 
 ## What's not yet implemented
 
 - [ ] AT-SPI accessibility tree fallback (v2)
 - [ ] OCR verification (v2)
 - [ ] API port override
-- [ ] Trusted API client IPs configuration
 - [ ] Save TWS settings on schedule
 - [ ] Full 27+ IBC dialog handler coverage
 

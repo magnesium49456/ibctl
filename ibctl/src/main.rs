@@ -6,6 +6,7 @@
 
 mod agent_client;
 mod agent_events;
+mod atspi;
 mod cold_restart;
 mod command_server;
 mod config;

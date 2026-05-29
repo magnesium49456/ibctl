@@ -56,6 +56,12 @@ IBC (IB Controller), the 23-year-old Java tool that automates Interactive Broker
 
 The Rust binary (`ibctl`) is the process supervisor and orchestrator. It launches IB Gateway with a Java agent (`ibctl-agent.jar`) injected via `-javaagent:`. The agent runs inside the Gateway JVM and exposes an HTTP+JSON API over a Unix domain socket. The Rust side drives the login flow by querying and commanding the agent.
 
+When the Java agent cannot produce a useful Swing component dump, ibctl can fall
+back to the Linux AT-SPI accessibility tree. The Docker image starts a DBus
+session, enables the Java ATK bridge, and includes `/opt/ibctl/atspi_dump.py`.
+`IBCTL_ATSPI_FALLBACK=auto` keeps this as a backup path rather than the primary
+automation channel.
+
 ---
 
 ## Agent IPC Protocol
@@ -489,4 +495,4 @@ thiserror = "2"
 toml = "0.8"
 ```
 
-No `x11rb` needed in the initial version -- all UI interaction goes through the Java agent. `x11rb` is reserved for a future AT-SPI fallback path.
+No `x11rb` is needed. Primary UI interaction goes through the Java agent; sparse or unavailable Swing dumps can fall back to the Linux AT-SPI accessibility tree.

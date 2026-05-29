@@ -58,6 +58,7 @@ All other env vars mirror TOML fields. Grouped by section below.
 |---|---|---|
 | `IBCTL_OCR_VERIFICATION` | `auto`, `yes`, or `no`; in `auto`, OCR runs when `tesseract` is available. | `auto` |
 | `IBCTL_OCR_VERIFICATION_STRICT` | `true` to fail 2FA entry when OCR cannot verify expected dialog text. | `false` |
+| `IBCTL_ATSPI_FALLBACK` | `auto`, `yes`, or `no`; uses the AT-SPI accessibility tree when Swing dumps are sparse or unavailable. | `auto` |
 
 ## `[twofa.backoff]` — HITL 2FA policy
 

@@ -51,6 +51,28 @@ while [ ! -S "/tmp/.X11-unix/X1" ]; do
 done
 echo "Xvfb ready"
 
+# Optional AT-SPI accessibility bus for fallback UI inspection.
+# The Java agent remains primary; AT-SPI is used only when Swing dumps are sparse
+# or unavailable. A DBus session is required for pyatspi and the Java ATK bridge.
+case "$(printf '%s' "${IBCTL_ATSPI_FALLBACK:-auto}" | tr '[:upper:]' '[:lower:]')" in
+    0|false|no|off|disabled)
+        AT_SPI_ENABLED=false
+        ;;
+    *)
+        AT_SPI_ENABLED=true
+        ;;
+esac
+if [ "$AT_SPI_ENABLED" = "true" ]; then
+    export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/runtime-ibgateway}"
+    mkdir -p "$XDG_RUNTIME_DIR"
+    chmod 700 "$XDG_RUNTIME_DIR"
+    if command -v dbus-launch >/dev/null 2>&1; then
+        eval "$(dbus-launch --sh-syntax)"
+        export DBUS_SESSION_BUS_ADDRESS DBUS_SESSION_BUS_PID
+        echo "DBus session started for AT-SPI fallback"
+    fi
+fi
+
 # Optional VNC
 if [ -n "${VNC_SERVER_PASSWORD:-}" ]; then
     echo "Starting VNC server"
@@ -169,6 +191,9 @@ cleanup() {
         kill -TERM "$pid" 2>/dev/null || true
     done
     wait "${PIDS[@]}" 2>/dev/null || true
+    if [ -n "${DBUS_SESSION_BUS_PID:-}" ]; then
+        kill "$DBUS_SESSION_BUS_PID" 2>/dev/null || true
+    fi
     echo "All instances stopped"
 }
 trap cleanup SIGINT SIGTERM

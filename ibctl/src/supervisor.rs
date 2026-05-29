@@ -199,6 +199,17 @@ impl Supervisor {
         cmd.arg("-Dchannel=latest");
         cmd.arg("-Dexe4j.isInstall4j=true");
         cmd.arg("-DinstallType=standalone");
+        let atspi_enabled = std::env::var("IBCTL_ATSPI_FALLBACK")
+            .map(|v| !matches!(v.trim().to_ascii_lowercase().as_str(), "0" | "false" | "no" | "off" | "disabled"))
+            .unwrap_or(true);
+        let atspi_wrapper_available =
+            classpath.contains("java-atk-wrapper") || classpath.contains("jayatk");
+        if atspi_enabled && atspi_wrapper_available {
+            cmd.arg("-Djavax.accessibility.assistive_technologies=org.GNOME.Accessibility.AtkWrapper");
+            cmd.arg("-Djavax.accessibility.screen_magnifier_present=true");
+        } else if atspi_enabled {
+            log::debug!("AT-SPI Java bridge requested, but Java ATK wrapper jar is not on the classpath");
+        }
 
         // Warm restart: pass session token path so Gateway skips 2FA
         if let Some(restart_path) = autorestart_path {
@@ -513,6 +524,18 @@ impl Supervisor {
         for i4j_path in &i4j_candidates {
             if i4j_path.exists() {
                 jars.push(i4j_path.display().to_string());
+                break;
+            }
+        }
+
+        // Optional Java ATK wrapper for AT-SPI accessibility fallback.
+        // Installed in the Docker image via libatk-wrapper-java; harmless when absent.
+        for atspi_path in [
+            Path::new("/usr/share/java/java-atk-wrapper.jar"),
+            Path::new("/usr/share/java/jayatk.jar"),
+        ] {
+            if atspi_path.exists() {
+                jars.push(atspi_path.display().to_string());
                 break;
             }
         }

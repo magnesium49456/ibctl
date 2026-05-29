@@ -335,8 +335,24 @@ impl AgentApi for UdsAgent {
     }
     async fn dump_components(&self, window_id: WindowId) -> Result<serde_json::Value, AgentError> {
         let path = format!("/windows/{}/dump", window_id.0);
-        let resp: AgentResponse<serde_json::Value> = self.get(&path).await?;
-        self.unwrap_response(resp)
+        match self.get::<AgentResponse<serde_json::Value>>(&path).await
+            .and_then(|resp| self.unwrap_response(resp))
+        {
+            Ok(value) => {
+                if crate::atspi::should_try_for_dump(&value) {
+                    if let Some(atspi) = self.dump_components_via_atspi(window_id).await {
+                        return atspi;
+                    }
+                }
+                Ok(value)
+            }
+            Err(primary_error) => {
+                if let Some(atspi) = self.dump_components_via_atspi(window_id).await {
+                    return atspi;
+                }
+                Err(primary_error)
+            }
+        }
     }
     async fn list_tabs(&self, window_id: WindowId) -> Result<serde_json::Value, AgentError> {
         let path = format!("/windows/{}/tabs", window_id.0);
@@ -366,6 +382,34 @@ impl AgentApi for UdsAgent {
 }
 
 impl UdsAgent {
+    async fn dump_components_via_atspi(&self, window_id: WindowId) -> Option<Result<serde_json::Value, AgentError>> {
+        if !crate::atspi::enabled() {
+            return None;
+        }
+        let title = match self.list_windows().await {
+            Ok(windows) => windows
+                .into_iter()
+                .find(|w| w.id == window_id)
+                .map(|w| w.title),
+            Err(e) => {
+                log::debug!("AT-SPI fallback skipped: could not list windows: {}", e);
+                None
+            }
+        }?;
+
+        match crate::atspi::dump_window_by_title(title.clone()).await {
+            Ok(Some(value)) => {
+                log::info!("Using AT-SPI component dump fallback for '{}'", title);
+                Some(Ok(value))
+            }
+            Ok(None) => None,
+            Err(e) => {
+                log::warn!("AT-SPI component dump fallback failed for '{}': {}", title, e);
+                None
+            }
+        }
+    }
+
     async fn get<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T, AgentError> {
         let request = format!(
             "GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",

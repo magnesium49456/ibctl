@@ -300,7 +300,9 @@ ENV HOME=/home/ibgateway \
     TWS_PATH=/home/ibgateway/Jts \
     GATEWAY_OR_TWS=gateway \
     JAVA_PATH=/usr/local/zulu17 \
-    NO_AT_BRIDGE=1
+    NO_AT_BRIDGE=0 \
+    GTK_MODULES=gail:atk-bridge \
+    QT_ACCESSIBILITY=1
 
 # Copy Gateway + JRE from setup stage (same as gnzsnz)
 COPY --from=setup /usr/local/ /usr/local/
@@ -381,6 +383,7 @@ RUN set -eux; \
     && apt-get upgrade -y \
     && apt-get install --no-install-recommends --yes \
         gettext-base socat xvfb x11vnc sshpass openssh-client telnet iputils-ping \
+        dbus-x11 at-spi2-core libatk-wrapper-java libatk-wrapper-java-jni python3-pyatspi \
         oathtool tesseract-ocr python3 python3-pip python3-venv websockify \
     && apt-get clean && rm -rf /var/lib/apt/lists/* \
     # Remove default ubuntu user if present
@@ -419,8 +422,9 @@ COPY dashboard/app /opt/ibctl/dashboard/app
 
 # Copy ibctl config and entrypoint
 COPY docker/entrypoint.sh /opt/ibctl/entrypoint.sh
+COPY docker/atspi_dump.py /opt/ibctl/atspi_dump.py
 COPY docker/ibctl.toml /opt/ibctl/ibctl.toml
-RUN chmod +x /opt/ibctl/ibctl /opt/ibctl/entrypoint.sh \
+RUN chmod +x /opt/ibctl/ibctl /opt/ibctl/entrypoint.sh /opt/ibctl/atspi_dump.py \
     && chown -R ibgateway:ibgateway /home/ibgateway /opt/ibctl /run/ibctl
 
 USER ${USER_ID}:${USER_GID}

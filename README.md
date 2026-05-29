@@ -35,6 +35,19 @@ to refresh that base image instead of reusing a local cached copy:
 docker build --pull -t ibctl .
 ```
 
+By default the build also resolves the current IB Gateway release from the
+`latest` channel. To use the current stable channel instead:
+
+```bash
+docker build --pull --build-arg IB_GATEWAY_CHANNEL=stable -t ibctl .
+```
+
+To pin a repeatable Gateway build, set both the channel and exact version:
+
+```bash
+docker build --pull --build-arg IB_GATEWAY_CHANNEL=latest --build-arg IB_GATEWAY_VERSION=10.47.1c -t ibctl .
+```
+
 Create a `docker-compose.yml`:
 
 ```yaml

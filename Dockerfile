@@ -8,7 +8,7 @@
 #   From source (no release available):
 #     docker build -t ibctl .
 
-ARG IB_GATEWAY_VERSION=10.45.1b
+ARG IB_GATEWAY_VERSION=latest
 ARG IB_GATEWAY_CHANNEL=latest
 ARG IBCTL_VERSION=""
 # Docker's ubuntu:latest tag tracks the latest LTS release; use
@@ -25,9 +25,8 @@ ARG IB_GATEWAY_VERSION
 ARG IB_GATEWAY_CHANNEL
 ARG TARGETARCH
 ARG DEBIAN_FRONTEND=noninteractive
-ARG IB_GATEWAY_FILE="ibgateway-${IB_GATEWAY_VERSION}-standalone-linux-x64.sh"
 ARG IB_GATEWAY_REPO="https://github.com/gnzsnz/ib-gateway-docker"
-ARG IB_GATEWAY_URL="${IB_GATEWAY_REPO}/releases/download/ibgateway-${IB_GATEWAY_CHANNEL}%40${IB_GATEWAY_VERSION}/${IB_GATEWAY_FILE}"
+ARG IB_GATEWAY_API_REPO="https://api.github.com/repos/gnzsnz/ib-gateway-docker"
 # aarch64 JDK (only used on ARM)
 ARG ZULU_NAME=zulu17.60.17-ca-fx-jre17.0.16-linux_aarch64
 ARG ZULU_FILE=${ZULU_NAME}.tar.gz
@@ -61,16 +60,31 @@ RUN sed -i 's|http://archive.ubuntu.com|http://mirror.csclub.uwaterloo.ca|g; s|h
         tar -xzf ${ZULU_FILE} -C /usr/local/ && \
         ln -s /usr/local/${ZULU_NAME} /usr/local/zulu17; \
     fi \
+    # Resolve the current upstream Gateway version for the selected channel.
+    # Passing --build-arg IB_GATEWAY_VERSION=10.xx.yz still pins an exact build.
+    && ib_gateway_version="${IB_GATEWAY_VERSION}" \
+    && if [ "${ib_gateway_version}" = "latest" ] || [ "${ib_gateway_version}" = "auto" ]; then \
+        ib_gateway_version="$(curl -fsSL "${IB_GATEWAY_API_REPO}/releases?per_page=100" \
+            | sed -n "s/.*\"tag_name\": \"ibgateway-${IB_GATEWAY_CHANNEL}@\\([^\"]*\\)\".*/\\1/p" \
+            | head -n 1)"; \
+        if [ -z "${ib_gateway_version}" ]; then \
+            echo "Could not resolve latest IB Gateway version for channel '${IB_GATEWAY_CHANNEL}'" >&2; \
+            exit 1; \
+        fi; \
+        echo "Resolved IB Gateway ${IB_GATEWAY_CHANNEL} channel to ${ib_gateway_version}"; \
+    fi \
+    && ib_gateway_file="ibgateway-${ib_gateway_version}-standalone-linux-x64.sh" \
+    && ib_gateway_url="${IB_GATEWAY_REPO}/releases/download/ibgateway-${IB_GATEWAY_CHANNEL}%40${ib_gateway_version}/${ib_gateway_file}" \
     # Download and verify IB Gateway installer
-    && curl -sSOL ${IB_GATEWAY_URL} \
-    && curl -sSOL ${IB_GATEWAY_URL}.sha256 \
-    && sha256sum --check ./${IB_GATEWAY_FILE}.sha256 \
-    && chmod a+x ./${IB_GATEWAY_FILE} \
+    && curl -fsSLO "${ib_gateway_url}" \
+    && curl -fsSLO "${ib_gateway_url}.sha256" \
+    && sha256sum --check "./${ib_gateway_file}.sha256" \
+    && chmod a+x "./${ib_gateway_file}" \
     # Install IB Gateway
     && if [ "${TARGETARCH}" = "arm64" ]; then \
-        app_java_home=/usr/local/zulu17 ./${IB_GATEWAY_FILE} -q -dir /root/Jts/ibgateway/${IB_GATEWAY_VERSION}; \
+        app_java_home=/usr/local/zulu17 "./${ib_gateway_file}" -q -dir "/root/Jts/ibgateway/${ib_gateway_version}"; \
     else \
-        ./${IB_GATEWAY_FILE} -q -dir /root/Jts/ibgateway/${IB_GATEWAY_VERSION}; \
+        "./${ib_gateway_file}" -q -dir "/root/Jts/ibgateway/${ib_gateway_version}"; \
     fi
 
 # jts.ini template (ibctl's version, includes ReadOnlyApi=no)
@@ -140,7 +154,6 @@ ARG DEBIAN_FRONTEND=noninteractive
 # Environment (matching gnzsnz conventions)
 ENV HOME=/home/ibgateway \
     IB_GATEWAY_VERSION=${IB_GATEWAY_VERSION} \
-    TWS_MAJOR_VRSN=${IB_GATEWAY_VERSION} \
     TWS_PATH=/home/ibgateway/Jts \
     GATEWAY_OR_TWS=gateway \
     JAVA_PATH=/usr/local/zulu17 \

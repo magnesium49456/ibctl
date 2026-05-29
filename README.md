@@ -119,6 +119,7 @@ For dual mode (live + paper simultaneously):
 | `RELOGIN_AFTER_TWOFA_TIMEOUT` | `yes` to retry login on timeout | `yes` |
 | `IBCTL_OCR_VERIFICATION` | OCR verification mode for 2FA dialogs (`auto`, `yes`, `no`) | `auto` |
 | `IBCTL_OCR_VERIFICATION_STRICT` | `true` to fail 2FA entry when OCR cannot verify the dialog text | `false` |
+| `IBCTL_ATSPI_FALLBACK` | AT-SPI accessibility-tree fallback for sparse Swing dumps (`auto`, `yes`, `no`) | `auto` |
 
 ### API configuration (applied after login)
 
@@ -237,10 +238,10 @@ Wire protocol is identical to IBC — line-based, `COMMAND\n` → `OK message\n`
 - [x] Trusted API client IPs configuration via `TWS_TRUSTED_IPS`
 - [x] API port override
 - [x] Save TWS settings on schedule
+- [x] AT-SPI accessibility tree fallback (Swing dump backup)
 
 ## What's not yet implemented
 
-- [ ] AT-SPI accessibility tree fallback (v2)
 - [ ] Full 27+ IBC dialog handler coverage
 
 ## Architecture

@@ -137,6 +137,7 @@ For dual mode (live + paper simultaneously):
 | `AUTO_RESTART_TIME` | Daily auto-restart time (e.g., `05:05 PM`) | — |
 | `AUTO_LOGOFF_TIME` | Auto-logoff time (e.g., `11:45 PM`) | — |
 | `TWS_COLD_RESTART` | Sunday cold restart time, 24h format (e.g., `09:00`) | — |
+| `SAVE_TWS_SETTINGS_AT` | Daily times to save Gateway/TWS settings (e.g., `08:00 12:30 17:30`) | — |
 
 ### Gateway settings
 
@@ -199,6 +200,7 @@ echo "RESTART" | nc localhost 7462
 echo "RECONNECTDATA" | nc localhost 7462
 echo "RECONNECTACCOUNT" | nc localhost 7462
 echo "ENABLEAPI" | nc localhost 7462
+echo "SAVESETTINGS" | nc localhost 7462
 ```
 
 Wire protocol is identical to IBC — line-based, `COMMAND\n` → `OK message\n` or `ERROR message\n`.
@@ -228,12 +230,12 @@ Wire protocol is identical to IBC — line-based, `COMMAND\n` → `OK message\n`
 - [x] Daily auto-restart recovery (handler state reset)
 - [x] Trusted API client IPs configuration via `TWS_TRUSTED_IPS`
 - [x] API port override
+- [x] Save TWS settings on schedule
 
 ## What's not yet implemented
 
 - [ ] AT-SPI accessibility tree fallback (v2)
 - [ ] OCR verification (v2)
-- [ ] Save TWS settings on schedule
 - [ ] Full 27+ IBC dialog handler coverage
 
 ## Architecture

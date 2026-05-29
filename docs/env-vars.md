@@ -90,6 +90,7 @@ All knobs also have full operator docs in [docs/hitl-2fa.md](hitl-2fa.md).
 | `IBCTL_ACCEPT_INCOMING` | `session.accept_incoming` | `"accept"` |
 | `TWS_COLD_RESTART` | `session.tws_cold_restart` | `""` (HH:MM, empty disables) |
 | `TWS_COLD_RESTART_DAY` | `session.tws_cold_restart_day` | `0` (0=Sun … 6=Sat) |
+| `SAVE_TWS_SETTINGS_AT` | `session.save_settings_at` | `""` (daily times, empty disables) |
 
 ## `[timing]`
 

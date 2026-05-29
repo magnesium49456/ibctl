@@ -68,6 +68,9 @@ pub(crate) fn parse_command(input: &str) -> Option<ParsedCommand> {
         Some("ENABLEAPI") => Some(ParsedCommand::Action(Command::EnableApi)),
         Some("EXIT") => Some(ParsedCommand::Action(Command::Exit)),
         Some("RESTARTSOCAT") => Some(ParsedCommand::Action(Command::RestartSocat)),
+        Some("SAVESETTINGS") | Some("SAVETWSSETTINGS") => {
+            Some(ParsedCommand::Action(Command::SaveSettings))
+        }
         // State machine control commands (God Mode)
         Some("PAUSE") => {
             // PAUSE with optional state name: "PAUSE WaitingForLogin"
@@ -647,6 +650,8 @@ mod tests {
         assert!(matches!(parse_command("RECONNECTDATA"), Some(ParsedCommand::Action(Command::ReconnectData))));
         assert!(matches!(parse_command("RECONNECTACCOUNT"), Some(ParsedCommand::Action(Command::ReconnectAccount))));
         assert!(matches!(parse_command("ENABLEAPI"), Some(ParsedCommand::Action(Command::EnableApi))));
+        assert!(matches!(parse_command("SAVESETTINGS"), Some(ParsedCommand::Action(Command::SaveSettings))));
+        assert!(matches!(parse_command("SAVETWSSETTINGS"), Some(ParsedCommand::Action(Command::SaveSettings))));
         assert!(matches!(parse_command("EXIT"), Some(ParsedCommand::Action(Command::Exit))));
     }
 

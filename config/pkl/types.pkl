@@ -207,6 +207,9 @@ class SessionConfig {
   /// Cold restart day of week (0=Sunday, 1=Monday, ..., 6=Saturday)
   /// @env TWS_COLD_RESTART_DAY
   twsColdRestartDay: UInt8 = 0
+  /// Daily times to save TWS settings, e.g. "08:00 12:30 17:30"
+  /// @env SAVE_TWS_SETTINGS_AT
+  saveSettingsAt: String = ""
 }
 
 /// TCP command server (IBC-compatible).

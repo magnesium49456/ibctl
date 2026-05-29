@@ -48,6 +48,7 @@ runtime = new RuntimeConfig {
     action = "primary"
     acceptIncoming = "accept"
     twsColdRestart = ""
+    saveSettingsAt = ""
   }
 
   commandServer = new CommandServerConfig {

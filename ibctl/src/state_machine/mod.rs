@@ -2207,6 +2207,10 @@ impl StateMachine {
                 log::info!("EnableApi command received (not yet implemented)");
                 Ok(())
             }
+            Command::SaveSettings => {
+                self.save_tws_settings().await;
+                Ok(())
+            }
             Command::Pause => {
                 log::info!("State machine PAUSED — transitions frozen");
                 self.pause.paused = true;
@@ -2282,6 +2286,71 @@ impl StateMachine {
                 Ok(())
             }
             _ => Ok(()),
+        }
+    }
+
+    async fn save_tws_settings(&mut self) {
+        if !self.supervisor.is_running() {
+            log::warn!("SAVESETTINGS ignored — JVM is not running");
+            return;
+        }
+
+        let windows = match self.agent_client.list_windows().await {
+            Ok(windows) => windows,
+            Err(e) => {
+                log::warn!("SAVESETTINGS failed to list windows: {}", e);
+                return;
+            }
+        };
+
+        let main_window = windows
+            .iter()
+            .find(|w| {
+                let title = w.title.to_lowercase();
+                title.contains("ibkr gateway")
+                    || title.contains("ib gateway")
+                    || title.contains("trader workstation")
+            })
+            .or_else(|| windows.first());
+
+        let Some(win) = main_window else {
+            log::warn!("SAVESETTINGS ignored — no Gateway/TWS window available");
+            return;
+        };
+
+        for path in ["File/Save Settings", "File/Save settings"] {
+            match self.agent_client.click_menu(win.id, path).await {
+                Ok(true) => {
+                    log::info!("SAVESETTINGS: clicked {}", path);
+                    tokio::time::sleep(std::time::Duration::from_millis(
+                        self.config.timing.ui_tick_ms,
+                    ))
+                    .await;
+                    self.dismiss_post_save_dialogs().await;
+                    return;
+                }
+                Ok(false) => {
+                    log::debug!("SAVESETTINGS: menu path not found: {}", path);
+                }
+                Err(e) => {
+                    log::debug!("SAVESETTINGS: menu path {} failed: {}", path, e);
+                }
+            }
+        }
+
+        log::warn!("SAVESETTINGS failed — File/Save Settings menu item not found");
+    }
+
+    async fn dismiss_post_save_dialogs(&self) {
+        if let Ok(windows) = self.agent_client.list_windows().await {
+            for w in &windows {
+                let title = w.title.to_lowercase();
+                if title.contains("gateway") || title.contains("trader workstation") {
+                    continue;
+                }
+                let _ = self.agent_client.click_button(w.id, "OK").await;
+                let _ = self.agent_client.click_button(w.id, "Yes").await;
+            }
         }
     }
 }

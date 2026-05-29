@@ -12,6 +12,7 @@ mod config;
 mod event_stream;
 mod handlers;
 mod logging;
+mod save_settings;
 mod signals;
 mod state_machine;
 mod supervisor;
@@ -154,9 +155,10 @@ async fn async_main(config: ValidConfig) -> Result<(), Box<dyn std::error::Error
     let (query_tx, query_rx) = tokio::sync::mpsc::channel(32);
     if config.command_server.enabled {
         let cmd_server = command_server::CommandServer::new(config.command_server.clone());
+        let command_tx_for_server = command_tx.clone();
         let snap_rx = snapshot_rx.clone();
         tasks.spawn(async move {
-            if let Err(e) = cmd_server.run(command_tx, query_tx, snap_rx).await {
+            if let Err(e) = cmd_server.run(command_tx_for_server, query_tx, snap_rx).await {
                 log::error!("Command server failed: {}", e);
             }
         });
@@ -180,6 +182,13 @@ async fn async_main(config: ValidConfig) -> Result<(), Box<dyn std::error::Error
         cold_restart_tx,
     ) {
         tasks.spawn(cold_restart_fut);
+    }
+
+    if let Some(save_settings_fut) = save_settings::save_settings_scheduler(
+        config.session.save_settings_at.clone(),
+        command_tx,
+    ) {
+        tasks.spawn(save_settings_fut);
     }
 
     // Start agent event stream reader (SUBSCRIBE on same socket — multiplexed protocol v2)
@@ -258,4 +267,3 @@ fn print_usage() {
          for the full list of configuration options."
     );
 }
-

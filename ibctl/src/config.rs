@@ -439,6 +439,9 @@ pub struct SessionConfig {
     /// Cold restart day of week (0=Sunday, 1=Monday, ..., 6=Saturday). Default: 0 (Sunday).
     #[serde(default)]
     pub tws_cold_restart_day: u8,
+    /// Daily times to save TWS settings (IBC SaveTwsSettingsAt style). Empty = disabled.
+    #[serde(default)]
+    pub save_settings_at: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -636,6 +639,7 @@ impl Default for SessionConfig {
             accept_incoming: AcceptIncoming::Accept,
             cold_restart_time: String::new(),
             tws_cold_restart_day: 0, // Sunday
+            save_settings_at: String::new(),
         }
     }
 }
@@ -910,6 +914,9 @@ impl Config {
                 }
             }
         }
+        if let Some(v) = env_nonempty("SAVE_TWS_SETTINGS_AT") {
+            self.session.save_settings_at = v;
+        }
 
         // Command server
         if let Some(v) = env_nonempty("IBCTL_COMMAND_SERVER_ENABLED") {
@@ -1152,6 +1159,7 @@ mod tests {
         assert_eq!(config.gateway.program, GatewayProgram::Gateway);
         assert_eq!(config.session.action, SessionAction::Primary);
         assert_eq!(config.session.accept_incoming, AcceptIncoming::Accept);
+        assert!(config.session.save_settings_at.is_empty());
         assert_eq!(config.logging.level, LogLevel::Info);
         assert_eq!(config.command_server.port, 7462);
         assert!(!config.command_server.enabled);

@@ -77,6 +77,8 @@ paper_socat_port = 4004
 action = "primary"
 # Incoming API connections: accept | reject | manual (env: IBCTL_ACCEPT_INCOMING)
 accept_incoming = "accept"
+# Daily times to save Gateway/TWS settings (env: SAVE_TWS_SETTINGS_AT)
+save_settings_at = ""
 
 [command_server]
 # Enable IBC-compatible TCP command server

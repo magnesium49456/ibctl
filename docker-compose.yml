@@ -38,6 +38,7 @@ services:
       READ_ONLY_API: ${READ_ONLY_API:-no}
       BYPASS_WARNING: ${BYPASS_WARNING:-yes}
       ALLOW_BLIND_TRADING: ${ALLOW_BLIND_TRADING:-no}
+      TWS_API_INSTRUMENT_TIMEZONE: ${TWS_API_INSTRUMENT_TIMEZONE:-UTC format}
 
       # --- Scheduling ---
       # NOTE: IB Gateway ignores TIME_ZONE and uses UTC internally.

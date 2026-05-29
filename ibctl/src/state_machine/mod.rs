@@ -2263,6 +2263,7 @@ impl StateMachine {
                     read_only_api: None,
                     bypass_order_precautions: None,
                     allow_blind_trading: None,
+                    instrument_timezone: None,
                     auto_restart_time: Some(time_str.clone()),
                     auto_logoff_time: None,
                 };

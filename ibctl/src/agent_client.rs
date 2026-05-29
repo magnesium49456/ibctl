@@ -79,6 +79,7 @@ pub trait AgentApi: Send + Sync {
     fn type_text(&self, window_id: WindowId, field_index: usize, text: &str) -> impl std::future::Future<Output = Result<bool, AgentError>> + Send;
     fn click_menu(&self, window_id: WindowId, menu_path: &str) -> impl std::future::Future<Output = Result<bool, AgentError>> + Send;
     fn set_checkbox(&self, window_id: WindowId, label: &str, state: Option<bool>) -> impl std::future::Future<Output = Result<bool, AgentError>> + Send;
+    fn set_combobox(&self, window_id: WindowId, label: &str, item: &str) -> impl std::future::Future<Output = Result<bool, AgentError>> + Send;
     fn select_list_item(&self, window_id: WindowId, item_text: &str) -> impl std::future::Future<Output = Result<bool, AgentError>> + Send;
     fn click_at(&self, window_id: WindowId, x: i32, y: i32) -> impl std::future::Future<Output = Result<bool, AgentError>> + Send;
     fn select_tree_node(&self, window_id: WindowId, node_name: &str) -> impl std::future::Future<Output = Result<bool, AgentError>> + Send;
@@ -132,6 +133,9 @@ impl AgentClient {
     pub async fn set_checkbox(&self, window_id: WindowId, label: &str, state: Option<bool>) -> Result<bool, AgentError> {
         self.inner.set_checkbox_boxed(window_id, label, state).await
     }
+    pub async fn set_combobox(&self, window_id: WindowId, label: &str, item: &str) -> Result<bool, AgentError> {
+        self.inner.set_combobox_boxed(window_id, label, item).await
+    }
     pub async fn select_list_item(&self, window_id: WindowId, item_text: &str) -> Result<bool, AgentError> {
         self.inner.select_list_item_boxed(window_id, item_text).await
     }
@@ -165,6 +169,7 @@ trait AgentApiBoxed: Send + Sync {
     fn type_text_boxed<'a>(&'a self, window_id: WindowId, field_index: usize, text: &'a str) -> BoxFut<'a, Result<bool, AgentError>>;
     fn click_menu_boxed<'a>(&'a self, window_id: WindowId, menu_path: &'a str) -> BoxFut<'a, Result<bool, AgentError>>;
     fn set_checkbox_boxed<'a>(&'a self, window_id: WindowId, label: &'a str, state: Option<bool>) -> BoxFut<'a, Result<bool, AgentError>>;
+    fn set_combobox_boxed<'a>(&'a self, window_id: WindowId, label: &'a str, item: &'a str) -> BoxFut<'a, Result<bool, AgentError>>;
     fn select_list_item_boxed<'a>(&'a self, window_id: WindowId, item_text: &'a str) -> BoxFut<'a, Result<bool, AgentError>>;
     fn click_at_boxed(&self, window_id: WindowId, x: i32, y: i32) -> BoxFut<'_, Result<bool, AgentError>>;
     fn select_tree_node_boxed<'a>(&'a self, window_id: WindowId, node_name: &'a str) -> BoxFut<'a, Result<bool, AgentError>>;
@@ -192,6 +197,9 @@ impl<T: AgentApi> AgentApiBoxed for T {
     }
     fn set_checkbox_boxed<'a>(&'a self, window_id: WindowId, label: &'a str, state: Option<bool>) -> BoxFut<'a, Result<bool, AgentError>> {
         Box::pin(self.set_checkbox(window_id, label, state))
+    }
+    fn set_combobox_boxed<'a>(&'a self, window_id: WindowId, label: &'a str, item: &'a str) -> BoxFut<'a, Result<bool, AgentError>> {
+        Box::pin(self.set_combobox(window_id, label, item))
     }
     fn select_list_item_boxed<'a>(&'a self, window_id: WindowId, item_text: &'a str) -> BoxFut<'a, Result<bool, AgentError>> {
         Box::pin(self.select_list_item(window_id, item_text))
@@ -255,6 +263,12 @@ impl AgentApi for UdsAgent {
         } else {
             serde_json::json!({ "label": label })
         };
+        let resp: AgentResponse<serde_json::Value> = self.post(&path, &body).await?;
+        Ok(resp.ok)
+    }
+    async fn set_combobox(&self, window_id: WindowId, label: &str, item: &str) -> Result<bool, AgentError> {
+        let path = format!("/windows/{}/combobox", window_id.0);
+        let body = serde_json::json!({ "label": label, "item": item });
         let resp: AgentResponse<serde_json::Value> = self.post(&path, &body).await?;
         Ok(resp.ok)
     }
@@ -408,6 +422,7 @@ impl AgentApi for MockAgent {
     async fn type_text(&self, _: WindowId, _: usize, _: &str) -> Result<bool, AgentError> { Ok(true) }
     async fn click_menu(&self, _: WindowId, _: &str) -> Result<bool, AgentError> { Ok(self.click_result) }
     async fn set_checkbox(&self, _: WindowId, _: &str, _: Option<bool>) -> Result<bool, AgentError> { Ok(true) }
+    async fn set_combobox(&self, _: WindowId, _: &str, _: &str) -> Result<bool, AgentError> { Ok(true) }
     async fn select_list_item(&self, _: WindowId, _: &str) -> Result<bool, AgentError> { Ok(true) }
     async fn click_at(&self, _: WindowId, _: i32, _: i32) -> Result<bool, AgentError> { Ok(true) }
     async fn select_tree_node(&self, _: WindowId, _: &str) -> Result<bool, AgentError> { Ok(true) }

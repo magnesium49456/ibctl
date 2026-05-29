@@ -285,6 +285,13 @@ public class MultiplexedServer {
                 if (item == null) return wrapError("Missing 'item' field");
                 return wrapActionResult(SwingInspector.selectListItem(windowId, item));
             }
+            if ("POST".equals(method) && "/combobox".equals(subPath)) {
+                String label = extractJsonField(body, "label");
+                String item = extractJsonField(body, "item");
+                if (label == null) return wrapError("Missing 'label' field");
+                if (item == null) return wrapError("Missing 'item' field");
+                return wrapActionResult(SwingInspector.setComboBox(windowId, label, item));
+            }
             if ("POST".equals(method) && "/clickat".equals(subPath)) {
                 String xStr = extractJsonField(body, "x");
                 String yStr = extractJsonField(body, "y");

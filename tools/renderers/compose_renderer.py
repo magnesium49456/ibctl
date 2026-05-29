@@ -66,6 +66,7 @@ def render_compose(cfg) -> str:
     env["READ_ONLY_API"] = "${READ_ONLY_API:-no}"
     env["BYPASS_WARNING"] = "${BYPASS_WARNING:-yes}"
     env["ALLOW_BLIND_TRADING"] = "${ALLOW_BLIND_TRADING:-no}"
+    env["TWS_API_INSTRUMENT_TIMEZONE"] = "${TWS_API_INSTRUMENT_TIMEZONE:-UTC format}"
 
     # Scheduling
     env["AUTO_RESTART_TIME"] = "${AUTO_RESTART_TIME:-09:05 PM}"

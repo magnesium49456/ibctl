@@ -54,6 +54,7 @@ def render_env_example(cfg) -> str:
         "READ_ONLY_API=no",
         "BYPASS_WARNING=yes",
         "ALLOW_BLIND_TRADING=no",
+        "TWS_API_INSTRUMENT_TIMEZONE=UTC format",
         "",
         "# Scheduling",
         "AUTO_RESTART_TIME=05:05 PM",

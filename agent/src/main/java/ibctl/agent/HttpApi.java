@@ -247,6 +247,16 @@ public class HttpApi {
                 return wrapActionResult(result);
             }
 
+            // POST /windows/{id}/combobox — select a JComboBox item by nearby label
+            if ("POST".equals(method) && "/combobox".equals(subPath)) {
+                String label = extractJsonField(body, "label");
+                String item = extractJsonField(body, "item");
+                if (label == null) return wrapError("Missing 'label' field");
+                if (item == null) return wrapError("Missing 'item' field");
+                String result = SwingInspector.setComboBox(windowId, label, item);
+                return wrapActionResult(result);
+            }
+
             // POST /windows/{id}/clickat — click at x,y coordinates relative to window
             if ("POST".equals(method) && "/clickat".equals(subPath)) {
                 String xStr = extractJsonField(body, "x");

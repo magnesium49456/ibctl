@@ -2,10 +2,15 @@ package ibctl.agent;
 
 import java.awt.*;
 import java.awt.event.KeyEvent;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.imageio.ImageIO;
 import javax.swing.*;
 
 /**
@@ -39,6 +44,41 @@ public class SwingInspector {
         }
         sb.append("]");
         return sb.toString();
+    }
+
+    /**
+     * Capture a PNG screenshot of the requested window.
+     * Used as an OCR fallback when Swing component text is missing or obfuscated.
+     */
+    public static String captureWindowScreenshot(long windowId) {
+        Window window = findWindowById(windowId);
+        if (window == null) {
+            return "{\"error\":\"Window not found\"}";
+        }
+
+        Rectangle bounds = window.getBounds();
+        if (bounds.width <= 0 || bounds.height <= 0) {
+            return "{\"error\":\"Window has empty bounds\"}";
+        }
+
+        try {
+            GraphicsConfiguration gc = window.getGraphicsConfiguration();
+            Robot robot = gc != null
+                    ? new Robot(gc.getDevice())
+                    : new Robot();
+            BufferedImage image = robot.createScreenCapture(bounds);
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            ImageIO.write(image, "png", out);
+            String pngBase64 = Base64.getEncoder().encodeToString(out.toByteArray());
+
+            return "{\"format\":\"png\""
+                    + ",\"width\":" + bounds.width
+                    + ",\"height\":" + bounds.height
+                    + ",\"png_base64\":" + jsonString(pngBase64)
+                    + "}";
+        } catch (AWTException | IOException | SecurityException e) {
+            return "{\"error\":" + jsonString(e.getMessage()) + "}";
+        }
     }
 
     /**

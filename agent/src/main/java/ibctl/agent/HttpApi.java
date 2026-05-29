@@ -296,6 +296,12 @@ public class HttpApi {
                 return wrapOk(result);
             }
 
+            // GET /windows/{id}/screenshot — capture window pixels as base64 PNG
+            if ("GET".equals(method) && "/screenshot".equals(subPath)) {
+                String result = SwingInspector.captureWindowScreenshot(windowId);
+                return wrapActionResult(result);
+            }
+
             // POST /windows/{id}/checkbox — get or set a checkbox by label
             if ("POST".equals(method) && "/checkbox".equals(subPath)) {
                 String label = extractJsonField(body, "label");

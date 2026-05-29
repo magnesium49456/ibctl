@@ -12,6 +12,7 @@ mod config;
 mod event_stream;
 mod handlers;
 mod logging;
+mod ocr;
 mod save_settings;
 mod signals;
 mod state_machine;

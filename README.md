@@ -117,6 +117,8 @@ For dual mode (live + paper simultaneously):
 | `TWOFA_TIMEOUT_ACTION` | `restart` or `exit` on 2FA timeout | `restart` |
 | `TWOFA_EXIT_INTERVAL` | Seconds to wait for 2FA approval | `180` |
 | `RELOGIN_AFTER_TWOFA_TIMEOUT` | `yes` to retry login on timeout | `yes` |
+| `IBCTL_OCR_VERIFICATION` | OCR verification mode for 2FA dialogs (`auto`, `yes`, `no`) | `auto` |
+| `IBCTL_OCR_VERIFICATION_STRICT` | `true` to fail 2FA entry when OCR cannot verify the dialog text | `false` |
 
 ### API configuration (applied after login)
 
@@ -214,6 +216,7 @@ Wire protocol is identical to IBC — line-based, `COMMAND\n` → `OK message\n`
 - [x] 2FA device selection (IB Key, Mobile Authenticator)
 - [x] 2FA via IB Key mobile push (wait for approval, timeout with retry)
 - [x] 2FA via TOTP code (built-in RFC 6238 generator, oathtool fallback)
+- [x] OCR verification for 2FA dialogs (agent screenshot + tesseract fallback)
 - [x] Session conflict handling (primary/secondary/primaryoverride)
 - [x] Post-login API configuration via Global Configuration dialog
   - Master Client ID
@@ -238,7 +241,6 @@ Wire protocol is identical to IBC — line-based, `COMMAND\n` → `OK message\n`
 ## What's not yet implemented
 
 - [ ] AT-SPI accessibility tree fallback (v2)
-- [ ] OCR verification (v2)
 - [ ] Full 27+ IBC dialog handler coverage
 
 ## Architecture

@@ -73,7 +73,7 @@ HTTP+JSON over Unix domain socket at `/tmp/ibctl.sock`. The agent uses JDK 17's 
 | POST | `/windows/{id}/click` | Click a button by label |
 | POST | `/windows/{id}/type` | Type text into a field by index |
 | POST | `/windows/{id}/key` | Send keystroke (for RECONNECTDATA=Ctrl+F etc.) |
-| GET | `/windows/{id}/screenshot` | Capture window pixels (for future OCR) |
+| GET | `/windows/{id}/screenshot` | Capture window pixels as PNG for OCR verification |
 
 ### Response Format
 

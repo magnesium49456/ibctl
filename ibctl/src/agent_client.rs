@@ -9,6 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -67,6 +68,26 @@ pub struct WindowInfo {
     pub visible: bool,
 }
 
+/// PNG screenshot captured by the Java agent.
+#[derive(Debug, Clone)]
+pub struct WindowScreenshot {
+    pub format: String,
+    pub width: u32,
+    pub height: u32,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ScreenshotPayload {
+    #[serde(default)]
+    format: String,
+    #[serde(default)]
+    width: u32,
+    #[serde(default)]
+    height: u32,
+    png_base64: String,
+}
+
 // ---------------------------------------------------------------------------
 // Trait: AgentApi
 // ---------------------------------------------------------------------------
@@ -87,6 +108,7 @@ pub trait AgentApi: Send + Sync {
     fn dump_components(&self, window_id: WindowId) -> impl std::future::Future<Output = Result<serde_json::Value, AgentError>> + Send;
     fn list_tabs(&self, window_id: WindowId) -> impl std::future::Future<Output = Result<serde_json::Value, AgentError>> + Send;
     fn send_key(&self, window_id: WindowId, key: &str) -> impl std::future::Future<Output = Result<bool, AgentError>> + Send;
+    fn capture_screenshot(&self, window_id: WindowId) -> impl std::future::Future<Output = Result<WindowScreenshot, AgentError>> + Send;
 }
 
 // ---------------------------------------------------------------------------
@@ -158,6 +180,9 @@ impl AgentClient {
     pub async fn send_key(&self, window_id: WindowId, key: &str) -> Result<bool, AgentError> {
         self.inner.send_key_boxed(window_id, key).await
     }
+    pub async fn capture_screenshot(&self, window_id: WindowId) -> Result<WindowScreenshot, AgentError> {
+        self.inner.capture_screenshot_boxed(window_id).await
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -181,6 +206,7 @@ trait AgentApiBoxed: Send + Sync {
     fn dump_components_boxed(&self, window_id: WindowId) -> BoxFut<'_, Result<serde_json::Value, AgentError>>;
     fn list_tabs_boxed(&self, window_id: WindowId) -> BoxFut<'_, Result<serde_json::Value, AgentError>>;
     fn send_key_boxed<'a>(&'a self, window_id: WindowId, key: &'a str) -> BoxFut<'a, Result<bool, AgentError>>;
+    fn capture_screenshot_boxed(&self, window_id: WindowId) -> BoxFut<'_, Result<WindowScreenshot, AgentError>>;
 }
 
 /// Blanket impl: any `T: AgentApi` can be used as a boxed trait object.
@@ -226,6 +252,9 @@ impl<T: AgentApi> AgentApiBoxed for T {
     }
     fn send_key_boxed<'a>(&'a self, window_id: WindowId, key: &'a str) -> BoxFut<'a, Result<bool, AgentError>> {
         Box::pin(self.send_key(window_id, key))
+    }
+    fn capture_screenshot_boxed(&self, window_id: WindowId) -> BoxFut<'_, Result<WindowScreenshot, AgentError>> {
+        Box::pin(self.capture_screenshot(window_id))
     }
 }
 
@@ -319,6 +348,20 @@ impl AgentApi for UdsAgent {
         let body = serde_json::json!({ "key": key });
         let resp: AgentResponse<serde_json::Value> = self.post(&path, &body).await?;
         Ok(resp.ok)
+    }
+    async fn capture_screenshot(&self, window_id: WindowId) -> Result<WindowScreenshot, AgentError> {
+        let path = format!("/windows/{}/screenshot", window_id.0);
+        let resp: AgentResponse<ScreenshotPayload> = self.get(&path).await?;
+        let payload = self.unwrap_response(resp)?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(payload.png_base64.as_bytes())
+            .map_err(|e| AgentError::RequestFailed(format!("invalid screenshot base64: {}", e)))?;
+        Ok(WindowScreenshot {
+            format: if payload.format.is_empty() { "png".to_string() } else { payload.format },
+            width: payload.width,
+            height: payload.height,
+            bytes,
+        })
     }
 }
 
@@ -444,6 +487,14 @@ impl AgentApi for MockAgent {
     async fn dump_components(&self, _: WindowId) -> Result<serde_json::Value, AgentError> { Ok(self.dump_response.clone()) }
     async fn list_tabs(&self, _: WindowId) -> Result<serde_json::Value, AgentError> { Ok(serde_json::json!({"tabs": []})) }
     async fn send_key(&self, _: WindowId, _: &str) -> Result<bool, AgentError> { Ok(true) }
+    async fn capture_screenshot(&self, _: WindowId) -> Result<WindowScreenshot, AgentError> {
+        Ok(WindowScreenshot {
+            format: "png".to_string(),
+            width: 1,
+            height: 1,
+            bytes: Vec::new(),
+        })
+    }
 }
 
 #[cfg(test)]

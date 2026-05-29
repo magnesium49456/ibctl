@@ -13,6 +13,14 @@ use crate::config::TotpProvider;
 use crate::handlers::{DialogHandler, HandlerError, HandlerResult};
 use crate::totp;
 
+const TWOFA_OCR_NEEDLES: &[&str] = &[
+    "second factor",
+    "security code",
+    "authentication code",
+    "mobile authentication",
+    "enter the code",
+];
+
 /// Handles the second factor authentication dialog by generating a TOTP
 /// code and entering it.
 pub struct TotpEntryHandler {
@@ -48,13 +56,46 @@ impl DialogHandler for TotpEntryHandler {
         Box::pin(async move {
             log::info!("Handling 2FA dialog '{}'", window.title);
 
+            if crate::ocr::verification_enabled() {
+                match crate::ocr::verify_window_contains_any(client, window, TWOFA_OCR_NEEDLES)
+                    .await
+                {
+                    Ok(Some(result)) if result.matched => {
+                        log::info!("OCR verified 2FA dialog text before code entry");
+                    }
+                    Ok(Some(result)) => {
+                        let message = format!(
+                            "OCR did not recognize expected 2FA text in '{}'",
+                            window.title
+                        );
+                        if crate::ocr::strict_verification() {
+                            return Ok(HandlerResult::Error(message));
+                        }
+                        log::warn!("{}; continuing because strict OCR is disabled", message);
+                        log::debug!("OCR text was: {}", result.text.trim());
+                    }
+                    Ok(None) => {
+                        log::debug!("OCR verification skipped for '{}'", window.title);
+                    }
+                    Err(e) => {
+                        if crate::ocr::strict_verification() {
+                            return Ok(HandlerResult::Error(format!(
+                                "strict OCR verification failed: {}",
+                                e
+                            )));
+                        }
+                        log::warn!("OCR verification failed: {}; continuing", e);
+                    }
+                }
+            }
+
             // Read the TOTP secret from the configured env var (wrapped in SecretString)
-            let secret = SecretString::from(
-                std::env::var(&self.secret_env).map_err(|_| HandlerError::Failed {
+            let secret = SecretString::from(std::env::var(&self.secret_env).map_err(|_| {
+                HandlerError::Failed {
                     handler: self.name().to_string(),
                     reason: format!("TOTP secret env var '{}' not set", self.secret_env),
-                })?
-            );
+                }
+            })?);
 
             // Generate TOTP code in a blocking task to avoid blocking the runtime
             let provider_type = self.provider;

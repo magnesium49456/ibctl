@@ -381,7 +381,7 @@ RUN set -eux; \
     && apt-get upgrade -y \
     && apt-get install --no-install-recommends --yes \
         gettext-base socat xvfb x11vnc sshpass openssh-client telnet iputils-ping \
-        oathtool python3 python3-pip python3-venv websockify \
+        oathtool tesseract-ocr python3 python3-pip python3-venv websockify \
     && apt-get clean && rm -rf /var/lib/apt/lists/* \
     # Remove default ubuntu user if present
     && if id ubuntu 2>/dev/null; then userdel -rf ubuntu; fi \

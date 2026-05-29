@@ -52,6 +52,13 @@ All other env vars mirror TOML fields. Grouped by section below.
 | `TWOFA_DEVICE` | `twofa.device` | `""` |
 | `RELOGIN_AFTER_TWOFA_TIMEOUT` | `twofa.relogin_after_timeout` | `false` |
 
+## OCR verification (env-only)
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `IBCTL_OCR_VERIFICATION` | `auto`, `yes`, or `no`; in `auto`, OCR runs when `tesseract` is available. | `auto` |
+| `IBCTL_OCR_VERIFICATION_STRICT` | `true` to fail 2FA entry when OCR cannot verify expected dialog text. | `false` |
+
 ## `[twofa.backoff]` — HITL 2FA policy
 
 All knobs also have full operator docs in [docs/hitl-2fa.md](hitl-2fa.md).

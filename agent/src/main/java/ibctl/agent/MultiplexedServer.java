@@ -316,6 +316,8 @@ public class MultiplexedServer {
             }
             if ("GET".equals(method) && "/dump".equals(subPath))
                 return wrapOk(SwingInspector.dumpInteractiveComponents(windowId));
+            if ("GET".equals(method) && "/screenshot".equals(subPath))
+                return wrapActionResult(SwingInspector.captureWindowScreenshot(windowId));
             if ("POST".equals(method) && "/checkbox".equals(subPath)) {
                 String label = extractJsonField(body, "label");
                 if (label == null) return wrapError("Missing 'label' field");

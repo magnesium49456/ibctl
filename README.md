@@ -113,6 +113,7 @@ For dual mode (live + paper simultaneously):
 |----------|-------------|---------|
 | `TWOFA_DEVICE` | 2FA device name (`IB Key`, `Mobile Authenticator app`) | — |
 | `TWOFACTOR_CODE` | TOTP base32 secret (for automated code entry) | — |
+| `TOTP_PROVIDER` | TOTP generator command (`oathtool`) | `oathtool` |
 | `TWOFA_TIMEOUT_ACTION` | `restart` or `exit` on 2FA timeout | `restart` |
 | `TWOFA_EXIT_INTERVAL` | Seconds to wait for 2FA approval | `180` |
 | `RELOGIN_AFTER_TWOFA_TIMEOUT` | `yes` to retry login on timeout | `yes` |
@@ -141,11 +142,47 @@ For dual mode (live + paper simultaneously):
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `JAVA_HEAP_SIZE` | JVM heap size in MB | `768` |
+| `TZ` | Container timezone. Use `Etc/UTC` if automated TOTP login is rejected. | `America/New_York` |
 | `VNC_SERVER_PASSWORD` | Enable VNC with this password | disabled |
 | `IBCTL_COMMAND_PORT` | TCP command server port | `7462` |
 | `IBCTL_LOG_LEVEL` | `debug`, `info`, `warn`, `error` | `info` |
 
 Docker secrets are supported: any variable can use `_FILE` suffix to read from a file (e.g., `TWS_PASSWORD_FILE=/run/secrets/ib_password`).
+
+## Troubleshooting
+
+### TOTP works only when `TZ` is UTC
+
+If automated TOTP entry reaches the 2FA dialog but IB Gateway rejects the code or keeps retrying login, check the Docker container timezone and the host clock first.
+
+Docker Compose uses `.env` values for `${...}` interpolation while parsing `docker-compose.yml`. The final `environment:` value in the Compose file is what the container receives. With the provided Compose file:
+
+```yaml
+TZ: ${TZ:-America/New_York}
+```
+
+this `.env` line sets the container timezone to UTC:
+
+```env
+TZ=Etc/UTC
+```
+
+If `TZ` is hardcoded in `docker-compose.yml`, that Compose value wins for the container. If both the shell environment and `.env` define `TZ`, Docker Compose uses the shell environment value for interpolation.
+
+Recommended TOTP settings:
+
+```env
+TZ=Etc/UTC
+TOTP_PROVIDER=oathtool
+```
+
+You can verify the rendered container environment with dummy credentials:
+
+```bash
+TWS_USERID=dummy TWS_PASSWORD=dummy TWOFACTOR_CODE=dummy TZ=Etc/UTC docker compose config
+```
+
+Confirm the rendered output contains `TZ: Etc/UTC`. Also make sure the host running Docker has accurate time synchronization enabled, because TOTP codes are time-windowed and clock skew can make every generated code invalid.
 
 ## IBC-compatible command server
 

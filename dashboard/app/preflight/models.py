@@ -477,6 +477,10 @@ ENV_MAP: dict[str, str] = {
     "gateway.tws_major_vrsn": "TWS_MAJOR_VRSN",
     "gateway.java_heap_size": "JAVA_HEAP_SIZE",
     "gateway.gateway_or_tws": "GATEWAY_OR_TWS",
+    "gateway.live_api_port": "IBCTL_LIVE_API_PORT",
+    "gateway.paper_api_port": "IBCTL_PAPER_API_PORT",
+    "gateway.live_socat_port": "IBCTL_LIVE_SOCAT_PORT",
+    "gateway.paper_socat_port": "IBCTL_PAPER_SOCAT_PORT",
     # Session
     "session.action": "IBCTL_SESSION_ACTION",
     "session.accept_incoming": "IBCTL_ACCEPT_INCOMING",

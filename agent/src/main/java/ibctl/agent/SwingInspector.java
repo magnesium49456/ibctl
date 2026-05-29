@@ -146,6 +146,71 @@ public class SwingInspector {
     }
 
     /**
+     * Type text into the JTextField nearest a matching JLabel. Configuration
+     * dialogs are laid out as label/field rows, so this is more stable than
+     * relying on component order when Gateway adds fields between releases.
+     */
+    public static String typeTextByLabel(long windowId, String label, String text) {
+        Window window = findWindowById(windowId);
+        if (window == null) {
+            return "{\"found\":false,\"error\":\"Window not found\"}";
+        }
+
+        List<JTextField> fields = new ArrayList<>();
+        collectComponents(window, JTextField.class, fields);
+        if (fields.isEmpty()) {
+            return "{\"found\":false,\"error\":\"No text field found\"}";
+        }
+
+        List<JLabel> labels = new ArrayList<>();
+        collectComponents(window, JLabel.class, labels);
+
+        JTextField selectedField = null;
+        String matchedLabel = null;
+        int bestScore = Integer.MAX_VALUE;
+        String normalizedLabel = label.toLowerCase();
+
+        for (JLabel l : labels) {
+            String labelText = l.getText();
+            if (labelText == null || labelText.isEmpty()) continue;
+            String normalizedText = labelText.toLowerCase();
+            if (!normalizedText.contains(normalizedLabel) && !normalizedLabel.contains(normalizedText)) {
+                continue;
+            }
+
+            Rectangle labelBounds = boundsInWindow(window, l);
+            for (JTextField field : fields) {
+                if (!field.isVisible() || !field.isEnabled() || !field.isEditable()) continue;
+                Rectangle fieldBounds = boundsInWindow(window, field);
+                int verticalDistance = Math.abs(centerY(labelBounds) - centerY(fieldBounds));
+                int horizontalDistance = Math.max(0, fieldBounds.x - labelBounds.x);
+                int wrongSidePenalty = fieldBounds.x < labelBounds.x ? 10_000 : 0;
+                int score = verticalDistance * 10 + horizontalDistance + wrongSidePenalty;
+                if (score < bestScore) {
+                    bestScore = score;
+                    selectedField = field;
+                    matchedLabel = labelText;
+                }
+            }
+        }
+
+        if (selectedField == null) {
+            return "{\"found\":false,\"error\":\"TextField not found near label: " + escapeJson(label) + "\"}";
+        }
+
+        try {
+            final JTextField finalField = selectedField;
+            SwingUtilities.invokeAndWait(() -> {
+                finalField.requestFocusInWindow();
+                finalField.setText(text);
+            });
+            return "{\"found\":true,\"typed\":true,\"label\":" + jsonString(matchedLabel) + "}";
+        } catch (InterruptedException | InvocationTargetException e) {
+            return "{\"found\":true,\"typed\":false,\"error\":" + jsonString(e.getMessage()) + "}";
+        }
+    }
+
+    /**
      * Send a keystroke to a window. The keyStroke string should be parseable by
      * KeyStroke.getKeyStroke() (e.g. "ctrl F", "ENTER", "alt F4").
      * Returns JSON result string.

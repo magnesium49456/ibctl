@@ -28,6 +28,7 @@ fn env_bool(var: &str) -> Option<bool> {
 /// and are intentionally not in the TOML config file.
 #[derive(Debug, Clone)]
 pub struct ApiConfigSettings {
+    pub socket_port: Option<u16>,
     pub master_client_id: Option<String>,
     pub read_only_api: Option<bool>,
     pub bypass_order_precautions: Option<bool>,
@@ -40,6 +41,8 @@ pub struct ApiConfigSettings {
 impl ApiConfigSettings {
     pub fn from_env() -> Self {
         Self {
+            socket_port: std::env::var("TWS_SOCKET_PORT").ok()
+                .and_then(|s| s.parse().ok()),
             master_client_id: std::env::var("TWS_MASTER_CLIENT_ID").ok()
                 .filter(|s| !s.is_empty()),
             read_only_api: env_bool("READ_ONLY_API"),
@@ -60,6 +63,7 @@ impl ApiConfigSettings {
 
     pub fn has_settings(&self) -> bool {
         self.master_client_id.is_some()
+            || self.socket_port.is_some()
             || self.read_only_api.is_some()
             || self.bypass_order_precautions.is_some()
             || self.allow_blind_trading.is_some()
@@ -179,6 +183,18 @@ pub async fn apply_api_config(
     client.select_tree_node(cid, "Settings").await
         .map_err(|_| ApiConfigError::Other("Failed to navigate to API/Settings".to_string()))?;
     tick(tick_ms).await;
+
+    if let Some(port) = settings.socket_port {
+        log::info!("Setting API Socket port to {}", port);
+        let ok = client
+            .type_text_by_label(cid, "Socket port", &port.to_string())
+            .await
+            .unwrap_or(false);
+        if !ok {
+            log::warn!("Could not set API Socket port by label; falling back to text field index 0");
+            let _ = client.type_text(cid, 0, &port.to_string()).await;
+        }
+    }
 
     // Master Client ID (field index 1)
     if let Some(ref id) = settings.master_client_id {
@@ -300,6 +316,7 @@ mod tests {
     #[test]
     fn test_has_settings_empty() {
         let s = ApiConfigSettings {
+            socket_port: None,
             master_client_id: None,
             read_only_api: None,
             bypass_order_precautions: None,
@@ -312,8 +329,24 @@ mod tests {
     }
 
     #[test]
+    fn test_has_settings_with_socket_port() {
+        let s = ApiConfigSettings {
+            socket_port: Some(4001),
+            master_client_id: None,
+            read_only_api: None,
+            bypass_order_precautions: None,
+            allow_blind_trading: None,
+            instrument_timezone: None,
+            auto_restart_time: None,
+            auto_logoff_time: None,
+        };
+        assert!(s.has_settings());
+    }
+
+    #[test]
     fn test_has_settings_with_master_id() {
         let s = ApiConfigSettings {
+            socket_port: None,
             master_client_id: Some("0".to_string()),
             read_only_api: None,
             bypass_order_precautions: None,
@@ -328,6 +361,7 @@ mod tests {
     #[test]
     fn test_has_settings_with_read_only() {
         let s = ApiConfigSettings {
+            socket_port: None,
             master_client_id: None,
             read_only_api: Some(false),
             bypass_order_precautions: None,
@@ -342,6 +376,7 @@ mod tests {
     #[test]
     fn test_has_settings_with_bypass() {
         let s = ApiConfigSettings {
+            socket_port: None,
             master_client_id: None,
             read_only_api: None,
             bypass_order_precautions: Some(true),
@@ -356,6 +391,7 @@ mod tests {
     #[test]
     fn test_has_settings_with_instrument_timezone() {
         let s = ApiConfigSettings {
+            socket_port: None,
             master_client_id: None,
             read_only_api: None,
             bypass_order_precautions: None,

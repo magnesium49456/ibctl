@@ -54,7 +54,8 @@ tws_major_vrsn = ""
 java_heap_size = 768
 # "gateway" or "tws"
 gateway_or_tws = "gateway"
-# API and socat port mappings (Gateway listens on api port, socat forwards from socat port)
+# API and socat port mappings. Gateway listens on the API port; socat forwards
+# from the container-facing socat port to Gateway's localhost-only API port.
 live_api_port = 4001
 paper_api_port = 4002
 live_socat_port = 4003

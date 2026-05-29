@@ -72,6 +72,14 @@ class TestPortConflict:
         )
         assert result.ok
 
+    def test_gateway_port_env_overrides_are_validated(self, monkeypatch, toml_file):
+        _set_valid_creds(monkeypatch)
+        monkeypatch.setenv("IBCTL_LIVE_API_PORT", "5100")
+        monkeypatch.setenv("IBCTL_PAPER_API_PORT", "5100")
+        result = validate_config(toml_path=toml_file(""), check_env=True)
+        assert not result.ok
+        assert any("Port conflict" in e.message for e in result.errors)
+
 
 class TestDualModeWarning:
     def test_both_mode_no_paper_warns_toml_only(self, toml_file):

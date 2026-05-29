@@ -1355,7 +1355,11 @@ impl StateMachine {
             self.config_retries, MAX_CONFIG_RETRIES
         );
 
-        let settings = crate::handlers::api_config::ApiConfigSettings::from_env();
+        let mut settings = crate::handlers::api_config::ApiConfigSettings::from_env();
+        settings.socket_port = Some(match self.config.auth.trading_mode {
+            crate::config::TradingMode::Paper => self.config.gateway.paper_api_port,
+            _ => self.config.gateway.live_api_port,
+        });
 
         match crate::handlers::api_config::apply_api_config(&self.agent_client, &settings, self.config.timing.ui_tick_ms).await {
             Ok(()) => {
@@ -2259,6 +2263,7 @@ impl StateMachine {
             Command::SetRestartTime(ref time_str) => {
                 log::info!("SETRESTART: setting auto-restart time to {} (UTC)", time_str);
                 let settings = crate::handlers::api_config::ApiConfigSettings {
+                    socket_port: None,
                     master_client_id: None,
                     read_only_api: None,
                     bypass_order_precautions: None,

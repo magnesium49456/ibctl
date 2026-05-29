@@ -77,6 +77,10 @@ All knobs also have full operator docs in [docs/hitl-2fa.md](hitl-2fa.md).
 | `TWS_MAJOR_VRSN` | `gateway.tws_major_vrsn` | auto-detected |
 | `JAVA_HEAP_SIZE` | `gateway.java_heap_size` | `768` (MB) |
 | `GATEWAY_OR_TWS` | `gateway.gateway_or_tws` | `"gateway"` |
+| `IBCTL_LIVE_API_PORT` | `gateway.live_api_port` | `4001` |
+| `IBCTL_PAPER_API_PORT` | `gateway.paper_api_port` | `4002` |
+| `IBCTL_LIVE_SOCAT_PORT` | `gateway.live_socat_port` | `4003` |
+| `IBCTL_PAPER_SOCAT_PORT` | `gateway.paper_socat_port` | `4004` |
 
 ## `[session]`
 

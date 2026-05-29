@@ -268,6 +268,13 @@ public class MultiplexedServer {
                     return wrapError("Invalid fieldIndex");
                 }
             }
+            if ("POST".equals(method) && "/type-by-label".equals(subPath)) {
+                String label = extractJsonField(body, "label");
+                String text = extractJsonField(body, "text");
+                if (label == null) return wrapError("Missing 'label' field");
+                if (text == null) return wrapError("Missing 'text' field");
+                return wrapActionResult(SwingInspector.typeTextByLabel(windowId, label, text));
+            }
             if ("POST".equals(method) && "/key".equals(subPath)) {
                 String key = extractJsonField(body, "key");
                 if (key == null) return wrapError("Missing 'key' field");

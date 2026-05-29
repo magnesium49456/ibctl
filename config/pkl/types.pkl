@@ -182,12 +182,16 @@ class GatewayConfig {
   /// @env GATEWAY_OR_TWS
   gatewayOrTws: GatewayProgram = "gateway"
   /// Gateway API port for live (Gateway listens here)
+  /// @env IBCTL_LIVE_API_PORT
   liveApiPort: UInt16 = 4001
   /// Gateway API port for paper
+  /// @env IBCTL_PAPER_API_PORT
   paperApiPort: UInt16 = 4002
   /// Socat forwarding port for live (external-facing)
+  /// @env IBCTL_LIVE_SOCAT_PORT
   liveSocatPort: UInt16 = 4003
   /// Socat forwarding port for paper
+  /// @env IBCTL_PAPER_SOCAT_PORT
   paperSocatPort: UInt16 = 4004
 }
 

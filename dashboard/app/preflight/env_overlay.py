@@ -79,6 +79,10 @@ _BOOL_FIELDS = {
 _INT_FIELDS = {
     "twofa.exit_interval",
     "gateway.java_heap_size",
+    "gateway.live_api_port",
+    "gateway.paper_api_port",
+    "gateway.live_socat_port",
+    "gateway.paper_socat_port",
     "command_server.port",
     "dashboard.port",
     "dashboard.zmq_port",

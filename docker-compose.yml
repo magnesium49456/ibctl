@@ -50,6 +50,10 @@ services:
 
       # --- Gateway ---
       JAVA_HEAP_SIZE: ${JAVA_HEAP_SIZE:-768}
+      IBCTL_LIVE_API_PORT: ${IBCTL_LIVE_API_PORT:-4001}
+      IBCTL_PAPER_API_PORT: ${IBCTL_PAPER_API_PORT:-4002}
+      IBCTL_LIVE_SOCAT_PORT: ${IBCTL_LIVE_SOCAT_PORT:-4003}
+      IBCTL_PAPER_SOCAT_PORT: ${IBCTL_PAPER_SOCAT_PORT:-4004}
       TZ: ${TZ:-America/New_York}
       VNC_SERVER_PASSWORD: ${VNC_SERVER_PASSWORD:-}
       RUST_LOG: ${RUST_LOG:-ibctl=info}
@@ -154,8 +158,8 @@ services:
       # - ./bin:/opt/ibctl/bin:ro
       # - ./dashboard/app:/opt/ibctl/dashboard/app:ro
     ports:
-      - "${IBCTL_LIVE_API_BIND:-127.0.0.1}:${IBCTL_LIVE_API_PORT:-4001}:4003"     # Live API
-      - "${IBCTL_PAPER_API_BIND:-127.0.0.1}:${IBCTL_PAPER_API_PORT:-4002}:4004"  # Paper API
+      - "${IBCTL_LIVE_API_BIND:-127.0.0.1}:${IBCTL_LIVE_API_PORT:-4001}:${IBCTL_LIVE_SOCAT_PORT:-4003}"     # Live API
+      - "${IBCTL_PAPER_API_BIND:-127.0.0.1}:${IBCTL_PAPER_API_PORT:-4002}:${IBCTL_PAPER_SOCAT_PORT:-4004}"  # Paper API
       - "${IBCTL_VNC_BIND:-127.0.0.1}:5900:5900"                            # VNC
       - "${IBCTL_VNC_BIND:-127.0.0.1}:6080:6080"                            # noVNC websocket
       - "127.0.0.1:7462:7462"                                               # Live command server

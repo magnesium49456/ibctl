@@ -217,6 +217,16 @@ public class HttpApi {
                 return wrapActionResult(result);
             }
 
+            // POST /windows/{id}/type-by-label
+            if ("POST".equals(method) && "/type-by-label".equals(subPath)) {
+                String label = extractJsonField(body, "label");
+                String text = extractJsonField(body, "text");
+                if (label == null) return wrapError("Missing 'label' field");
+                if (text == null) return wrapError("Missing 'text' field");
+                String result = SwingInspector.typeTextByLabel(windowId, label, text);
+                return wrapActionResult(result);
+            }
+
             // POST /windows/{id}/key
             if ("POST".equals(method) && "/key".equals(subPath)) {
                 String key = extractJsonField(body, "key");

@@ -143,6 +143,10 @@ For dual mode (live + paper simultaneously):
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `JAVA_HEAP_SIZE` | JVM heap size in MB | `768` |
+| `IBCTL_LIVE_API_PORT` | Live Gateway API socket port and default host port | `4001` |
+| `IBCTL_PAPER_API_PORT` | Paper Gateway API socket port and default host port | `4002` |
+| `IBCTL_LIVE_SOCAT_PORT` | Internal live socat forwarding port | `4003` |
+| `IBCTL_PAPER_SOCAT_PORT` | Internal paper socat forwarding port | `4004` |
 | `TZ` | Container timezone. Use `Etc/UTC` if automated TOTP login is rejected. | `America/New_York` |
 | `VNC_SERVER_PASSWORD` | Enable VNC with this password | disabled |
 | `IBCTL_COMMAND_PORT` | TCP command server port | `7462` |
@@ -210,6 +214,7 @@ Wire protocol is identical to IBC — line-based, `COMMAND\n` → `OK message\n`
   - Master Client ID
   - Read-Only API
   - Trusted API client IPs
+  - Gateway API socket port
   - Order precaution bypasses (all 9 checkboxes)
   - Auto-restart / auto-logoff time
 - [x] Dialog auto-dismissal (paper trading warning, SSL reconnect, version notice, tip-of-day)
@@ -222,12 +227,12 @@ Wire protocol is identical to IBC — line-based, `COMMAND\n` → `OK message\n`
 - [x] Connection loss recovery (re-login dialog auto-handled)
 - [x] Daily auto-restart recovery (handler state reset)
 - [x] Trusted API client IPs configuration via `TWS_TRUSTED_IPS`
+- [x] API port override
 
 ## What's not yet implemented
 
 - [ ] AT-SPI accessibility tree fallback (v2)
 - [ ] OCR verification (v2)
-- [ ] API port override
 - [ ] Save TWS settings on schedule
 - [ ] Full 27+ IBC dialog handler coverage
 

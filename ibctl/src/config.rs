@@ -858,6 +858,18 @@ impl Config {
         if let Some(v) = std::env::var("JAVA_HEAP_SIZE").ok().and_then(|s| s.parse().ok()) {
             self.gateway.java_heap_mb = v;
         }
+        if let Some(v) = std::env::var("IBCTL_LIVE_API_PORT").ok().and_then(|s| s.parse().ok()) {
+            self.gateway.live_api_port = v;
+        }
+        if let Some(v) = std::env::var("IBCTL_PAPER_API_PORT").ok().and_then(|s| s.parse().ok()) {
+            self.gateway.paper_api_port = v;
+        }
+        if let Some(v) = std::env::var("IBCTL_LIVE_SOCAT_PORT").ok().and_then(|s| s.parse().ok()) {
+            self.gateway.live_socat_port = v;
+        }
+        if let Some(v) = std::env::var("IBCTL_PAPER_SOCAT_PORT").ok().and_then(|s| s.parse().ok()) {
+            self.gateway.paper_socat_port = v;
+        }
         if let Some(v) = env_nonempty("GATEWAY_OR_TWS") {
             match v.to_lowercase().as_str() {
                 "gateway" => self.gateway.program = GatewayProgram::Gateway,

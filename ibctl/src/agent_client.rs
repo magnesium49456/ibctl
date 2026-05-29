@@ -77,6 +77,7 @@ pub trait AgentApi: Send + Sync {
     fn list_windows(&self) -> impl std::future::Future<Output = Result<Vec<WindowInfo>, AgentError>> + Send;
     fn click_button(&self, window_id: WindowId, label: &str) -> impl std::future::Future<Output = Result<bool, AgentError>> + Send;
     fn type_text(&self, window_id: WindowId, field_index: usize, text: &str) -> impl std::future::Future<Output = Result<bool, AgentError>> + Send;
+    fn type_text_by_label(&self, window_id: WindowId, label: &str, text: &str) -> impl std::future::Future<Output = Result<bool, AgentError>> + Send;
     fn click_menu(&self, window_id: WindowId, menu_path: &str) -> impl std::future::Future<Output = Result<bool, AgentError>> + Send;
     fn set_checkbox(&self, window_id: WindowId, label: &str, state: Option<bool>) -> impl std::future::Future<Output = Result<bool, AgentError>> + Send;
     fn set_combobox(&self, window_id: WindowId, label: &str, item: &str) -> impl std::future::Future<Output = Result<bool, AgentError>> + Send;
@@ -127,6 +128,9 @@ impl AgentClient {
     pub async fn type_text(&self, window_id: WindowId, field_index: usize, text: &str) -> Result<bool, AgentError> {
         self.inner.type_text_boxed(window_id, field_index, text).await
     }
+    pub async fn type_text_by_label(&self, window_id: WindowId, label: &str, text: &str) -> Result<bool, AgentError> {
+        self.inner.type_text_by_label_boxed(window_id, label, text).await
+    }
     pub async fn click_menu(&self, window_id: WindowId, menu_path: &str) -> Result<bool, AgentError> {
         self.inner.click_menu_boxed(window_id, menu_path).await
     }
@@ -167,6 +171,7 @@ trait AgentApiBoxed: Send + Sync {
     fn list_windows_boxed(&self) -> BoxFut<'_, Result<Vec<WindowInfo>, AgentError>>;
     fn click_button_boxed<'a>(&'a self, window_id: WindowId, label: &'a str) -> BoxFut<'a, Result<bool, AgentError>>;
     fn type_text_boxed<'a>(&'a self, window_id: WindowId, field_index: usize, text: &'a str) -> BoxFut<'a, Result<bool, AgentError>>;
+    fn type_text_by_label_boxed<'a>(&'a self, window_id: WindowId, label: &'a str, text: &'a str) -> BoxFut<'a, Result<bool, AgentError>>;
     fn click_menu_boxed<'a>(&'a self, window_id: WindowId, menu_path: &'a str) -> BoxFut<'a, Result<bool, AgentError>>;
     fn set_checkbox_boxed<'a>(&'a self, window_id: WindowId, label: &'a str, state: Option<bool>) -> BoxFut<'a, Result<bool, AgentError>>;
     fn set_combobox_boxed<'a>(&'a self, window_id: WindowId, label: &'a str, item: &'a str) -> BoxFut<'a, Result<bool, AgentError>>;
@@ -191,6 +196,9 @@ impl<T: AgentApi> AgentApiBoxed for T {
     }
     fn type_text_boxed<'a>(&'a self, window_id: WindowId, field_index: usize, text: &'a str) -> BoxFut<'a, Result<bool, AgentError>> {
         Box::pin(self.type_text(window_id, field_index, text))
+    }
+    fn type_text_by_label_boxed<'a>(&'a self, window_id: WindowId, label: &'a str, text: &'a str) -> BoxFut<'a, Result<bool, AgentError>> {
+        Box::pin(self.type_text_by_label(window_id, label, text))
     }
     fn click_menu_boxed<'a>(&'a self, window_id: WindowId, menu_path: &'a str) -> BoxFut<'a, Result<bool, AgentError>> {
         Box::pin(self.click_menu(window_id, menu_path))
@@ -247,6 +255,12 @@ impl AgentApi for UdsAgent {
     async fn type_text(&self, window_id: WindowId, field_index: usize, text: &str) -> Result<bool, AgentError> {
         let path = format!("/windows/{}/type", window_id.0);
         let body = serde_json::json!({ "fieldIndex": field_index, "text": text });
+        let resp: AgentResponse<serde_json::Value> = self.post(&path, &body).await?;
+        Ok(resp.ok)
+    }
+    async fn type_text_by_label(&self, window_id: WindowId, label: &str, text: &str) -> Result<bool, AgentError> {
+        let path = format!("/windows/{}/type-by-label", window_id.0);
+        let body = serde_json::json!({ "label": label, "text": text });
         let resp: AgentResponse<serde_json::Value> = self.post(&path, &body).await?;
         Ok(resp.ok)
     }
@@ -420,6 +434,7 @@ impl AgentApi for MockAgent {
     async fn list_windows(&self) -> Result<Vec<WindowInfo>, AgentError> { Ok(self.windows.clone()) }
     async fn click_button(&self, _: WindowId, _: &str) -> Result<bool, AgentError> { Ok(self.click_result) }
     async fn type_text(&self, _: WindowId, _: usize, _: &str) -> Result<bool, AgentError> { Ok(true) }
+    async fn type_text_by_label(&self, _: WindowId, _: &str, _: &str) -> Result<bool, AgentError> { Ok(true) }
     async fn click_menu(&self, _: WindowId, _: &str) -> Result<bool, AgentError> { Ok(self.click_result) }
     async fn set_checkbox(&self, _: WindowId, _: &str, _: Option<bool>) -> Result<bool, AgentError> { Ok(true) }
     async fn set_combobox(&self, _: WindowId, _: &str, _: &str) -> Result<bool, AgentError> { Ok(true) }

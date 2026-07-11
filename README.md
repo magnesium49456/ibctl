@@ -22,7 +22,7 @@ The Java agent is injected via `-javaagent:` into the Gateway JVM. It walks Swin
 ## Quick start
 
 ```bash
-git clone https://github.com/lcstyle/ibctl
+git clone https://github.com/magnesium49456/ibctl
 cd ibctl
 docker build -t ibctl .
 ```

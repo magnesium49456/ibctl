@@ -144,7 +144,7 @@ impl Supervisor {
         };
 
         // Find the java binary
-        let java_path = Self::find_java(tws_path)?;
+        let java_path = Self::find_java(tws_path, &version)?;
 
         // Read vmoptions if present — search same candidates as classpath
         let vmoptions_candidates = [
@@ -204,11 +204,23 @@ impl Supervisor {
             .unwrap_or(true);
         let atspi_wrapper_available =
             classpath.contains("java-atk-wrapper") || classpath.contains("jayatk");
-        if atspi_enabled && atspi_wrapper_available {
+        let atspi_native_dir = [
+            Path::new("/usr/lib/x86_64-linux-gnu/jni"),
+            Path::new("/usr/lib/aarch64-linux-gnu/jni"),
+            Path::new("/usr/lib/jni"),
+        ]
+        .into_iter()
+        .find(|path| path.join("libatk-wrapper.so").exists());
+        if atspi_enabled && atspi_wrapper_available && atspi_native_dir.is_some() {
+            if let Some(native_dir) = atspi_native_dir {
+                cmd.arg(format!("-Djava.library.path={}", native_dir.display()));
+            }
             cmd.arg("-Djavax.accessibility.assistive_technologies=org.GNOME.Accessibility.AtkWrapper");
             cmd.arg("-Djavax.accessibility.screen_magnifier_present=true");
         } else if atspi_enabled {
-            log::debug!("AT-SPI Java bridge requested, but Java ATK wrapper jar is not on the classpath");
+            log::debug!(
+                "AT-SPI Java bridge requested, but Java ATK wrapper jar or native library is unavailable"
+            );
         }
 
         // Warm restart: pass session token path so Gateway skips 2FA
@@ -614,7 +626,7 @@ impl Supervisor {
     }
 
     /// Find the java binary, checking common paths.
-    fn find_java(_tws_path: &Path) -> Result<String, SupervisorError> {
+    fn find_java(tws_path: &Path, version: &str) -> Result<String, SupervisorError> {
         // Check JAVA_PATH env var first
         if let Ok(java_path) = std::env::var("JAVA_PATH") {
             let bin = format!("{}/bin/java", java_path);
@@ -624,6 +636,22 @@ impl Supervisor {
             let direct = Path::new(&java_path);
             if direct.exists() && direct.is_file() {
                 return Ok(java_path);
+            }
+        }
+
+        // Recent IB Gateway installers can bundle the runtime under the
+        // versioned install directory instead of /usr/local/i4j_jres.
+        for candidate in [
+            tws_path.join(version).join("jre").join("bin").join("java"),
+            tws_path
+                .join("ibgateway")
+                .join(version)
+                .join("jre")
+                .join("bin")
+                .join("java"),
+        ] {
+            if candidate.exists() {
+                return Ok(candidate.display().to_string());
             }
         }
 
@@ -659,7 +687,8 @@ impl Supervisor {
         }
 
         Err(SupervisorError::JavaNotFound(
-            "no java binary found in JAVA_PATH, i4j_jres, or PATH".to_string(),
+            "no java binary found in JAVA_PATH, bundled Gateway/TWS JRE, i4j_jres, or PATH"
+                .to_string(),
         ))
     }
 }

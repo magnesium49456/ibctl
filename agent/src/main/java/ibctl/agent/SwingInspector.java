@@ -251,6 +251,133 @@ public class SwingInspector {
     }
 
     /**
+     * Type into the most likely verification-code field without relying on
+     * component order. This is intentionally semantic: Gateway releases may
+     * insert or reorder fields while preserving labels, accessibility metadata,
+     * placeholders, focus, and the short numeric shape of the code field.
+     */
+    public static String typeTextBest(long windowId, String text, String hints) {
+        Window window = findWindowById(windowId);
+        if (window == null) {
+            return "{\"found\":false,\"error\":\"Window not found\"}";
+        }
+
+        List<JTextField> allFields = new ArrayList<>();
+        collectComponents(window, JTextField.class, allFields);
+        List<JTextField> fields = new ArrayList<>();
+        for (JTextField field : allFields) {
+            if (field.isShowing() && field.isEnabled() && field.isEditable()) {
+                fields.add(field);
+            }
+        }
+        if (fields.isEmpty()) {
+            return "{\"found\":false,\"error\":\"No visible editable text field found\"}";
+        }
+
+        List<JLabel> labels = new ArrayList<>();
+        collectComponents(window, JLabel.class, labels);
+        String[] hintTokens = hints == null ? new String[0] : hints.toLowerCase().split("\\|");
+
+        JTextField selected = null;
+        int selectedIndex = -1;
+        int bestScore = Integer.MIN_VALUE;
+        String bestMetadata = "";
+        Component focusOwner = window.getFocusOwner();
+
+        for (int i = 0; i < fields.size(); i++) {
+            JTextField field = fields.get(i);
+            String metadata = textFieldMetadata(window, field, labels).toLowerCase();
+            int score = 0;
+
+            for (String hint : hintTokens) {
+                String normalized = hint.trim();
+                if (!normalized.isEmpty() && metadata.contains(normalized)) {
+                    score += normalized.equals("code") ? 120 : 220;
+                }
+            }
+            if (metadata.contains("verification") || metadata.contains("one-time")
+                    || metadata.contains("passcode") || metadata.contains("otp")) {
+                score += 180;
+            }
+            if (metadata.contains("username") || metadata.contains("user name")
+                    || metadata.contains("password") || metadata.contains("account")
+                    || metadata.contains("search") || metadata.contains("filter")) {
+                score -= 500;
+            }
+            if (focusOwner == field || field.isFocusOwner()) score += 80;
+            if (field.getText() == null || field.getText().isEmpty()) score += 15;
+            if (field.getColumns() >= 4 && field.getColumns() <= 12) score += 25;
+            if (fields.size() == 1) score += 250;
+
+            if (score > bestScore) {
+                selected = field;
+                selectedIndex = i;
+                bestScore = score;
+                bestMetadata = metadata;
+            }
+        }
+
+        if (selected == null) {
+            return "{\"found\":false,\"error\":\"No suitable text field found\"}";
+        }
+
+        try {
+            final JTextField finalField = selected;
+            AtomicReference<Boolean> verified = new AtomicReference<>(false);
+            SwingUtilities.invokeAndWait(() -> {
+                finalField.requestFocusInWindow();
+                finalField.setText(text);
+                verified.set(text.equals(finalField.getText()));
+            });
+            return "{\"found\":true"
+                    + ",\"typed\":" + verified.get()
+                    + ",\"fieldIndex\":" + selectedIndex
+                    + ",\"score\":" + bestScore
+                    + ",\"selector\":" + jsonString(bestMetadata.isEmpty() ? "single-editable-field" : "semantic-metadata")
+                    + "}";
+        } catch (InterruptedException | InvocationTargetException e) {
+            return "{\"found\":true,\"typed\":false,\"error\":" + jsonString(e.getMessage()) + "}";
+        }
+    }
+
+    private static String textFieldMetadata(Window window, JTextField field, List<JLabel> labels) {
+        StringBuilder metadata = new StringBuilder();
+        appendMetadata(metadata, field.getName());
+        appendMetadata(metadata, field.getToolTipText());
+        Object placeholder = field.getClientProperty("JTextField.placeholderText");
+        if (placeholder != null) appendMetadata(metadata, placeholder.toString());
+
+        javax.accessibility.AccessibleContext context = field.getAccessibleContext();
+        if (context != null) {
+            appendMetadata(metadata, context.getAccessibleName());
+            appendMetadata(metadata, context.getAccessibleDescription());
+        }
+
+        Rectangle fieldBounds = boundsInWindow(window, field);
+        for (JLabel label : labels) {
+            String labelText = label.getText();
+            if (labelText == null || labelText.trim().isEmpty()) continue;
+            if (label.getLabelFor() == field) {
+                appendMetadata(metadata, labelText);
+                continue;
+            }
+            Rectangle labelBounds = boundsInWindow(window, label);
+            int verticalDistance = Math.abs(centerY(labelBounds) - centerY(fieldBounds));
+            boolean labelIsLeft = labelBounds.x <= fieldBounds.x + fieldBounds.width;
+            if (verticalDistance <= Math.max(24, fieldBounds.height) && labelIsLeft) {
+                appendMetadata(metadata, labelText);
+            }
+        }
+        return metadata.toString().trim();
+    }
+
+    private static void appendMetadata(StringBuilder target, String value) {
+        if (value == null || value.trim().isEmpty()) return;
+        if (target.length() > 0) target.append(' ');
+        target.append(value.trim());
+    }
+
+    /**
      * Send a keystroke to a window. The keyStroke string should be parseable by
      * KeyStroke.getKeyStroke() (e.g. "ctrl F", "ENTER", "alt F4").
      * Returns JSON result string.
@@ -641,6 +768,8 @@ public class SwingInspector {
         sb.append("],\"textfields\":[");
         List<JTextField> fields = new ArrayList<>();
         collectComponents(window, JTextField.class, fields);
+        List<JLabel> fieldLabels = new ArrayList<>();
+        collectComponents(window, JLabel.class, fieldLabels);
         first = true;
         for (int i = 0; i < fields.size(); i++) {
             JTextField f = fields.get(i);
@@ -653,6 +782,8 @@ public class SwingInspector {
             sb.append(",\"enabled\":").append(f.isEnabled());
             sb.append(",\"editable\":").append(f.isEditable());
             sb.append(",\"columns\":").append(f.getColumns());
+            sb.append(",\"focused\":").append(f.isFocusOwner());
+            sb.append(",\"metadata\":").append(jsonString(textFieldMetadata(window, f, fieldLabels)));
             sb.append("}");
         }
 

@@ -196,6 +196,19 @@ TWS_USERID=dummy TWS_PASSWORD=dummy TWOFACTOR_CODE=dummy TZ=Etc/UTC docker compo
 
 Confirm the rendered output contains `TZ: Etc/UTC`. Also make sure the host running Docker has accurate time synchronization enabled, because TOTP codes are time-windowed and clock skew can make every generated code invalid.
 
+### Gateway update changed the 2FA dialog
+
+ibctl does not rely only on a fixed dialog title or text-field index. It first
+matches known 2FA titles, then inspects component labels and accessibility
+metadata for verification-code semantics. Code entry selects the best visible,
+enabled, editable field and falls back to AT-SPI if the Java Swing tree is not
+usable. Submit buttons are matched across common `OK`, `Verify`, `Submit`,
+`Continue`, and `Next` labels.
+
+For diagnostics, set `RUST_LOG=ibctl=debug`. Selector logs include only the
+selection method, field index, and score; the TOTP secret and generated code are
+not logged.
+
 ## IBC-compatible command server
 
 ibctl exposes an IBC-compatible TCP command server (default port 7462):

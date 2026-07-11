@@ -242,6 +242,11 @@ pub fn is_twofa_title(title: &str) -> bool {
         || t.contains("ib key authenticat")
         || t.contains("ibkr mobile authenticat")
         || t.contains("mobile authenticator")
+        || t.contains("verification code")
+        || t.contains("one-time password")
+        || t.contains("one time password")
+        || t.contains("passcode")
+        || t.contains("authentication challenge")
 }
 
 #[cfg(test)]
@@ -330,6 +335,9 @@ mod tests {
         assert!(is_twofa_title("IB Key Authentication"));
         assert!(is_twofa_title("IBKR Mobile Authentication"));
         assert!(is_twofa_title("Mobile Authenticator app code"));
+        assert!(is_twofa_title("Verification Code"));
+        assert!(is_twofa_title("One-Time Password"));
+        assert!(is_twofa_title("Authentication Challenge"));
         assert!(!is_twofa_title("IBKR Gateway"));
     }
 

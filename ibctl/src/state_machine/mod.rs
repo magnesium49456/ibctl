@@ -967,9 +967,35 @@ impl StateMachine {
                     return Ok(State::HandlingSessionConflict);
                 }
 
-                let twofa = windows.iter().find(|w| is_twofa_title(&w.title));
+                let mut twofa = windows
+                    .iter()
+                    .find(|window| is_twofa_title(&window.title))
+                    .cloned();
+                if twofa.is_none() {
+                    for window in &windows {
+                        let is_large_gateway = window
+                            .bounds
+                            .as_ref()
+                            .is_some_and(|bounds| bounds.width >= 650 && bounds.height >= 400)
+                            && window.title.to_ascii_lowercase().contains("gateway");
+                        if is_large_gateway {
+                            continue;
+                        }
+                        if let Ok(components) = self.agent_client.dump_components(window.id).await {
+                            if crate::handlers::totp_entry::looks_like_twofa_components(&components)
+                            {
+                                log::info!(
+                                    "2FA dialog detected from component semantics: '{}'",
+                                    window.title
+                                );
+                                twofa = Some(window.clone());
+                                break;
+                            }
+                        }
+                    }
+                }
 
-                if let Some(win) = twofa {
+                if let Some(win) = twofa.as_ref() {
                     // 2FA dialog is visible — reset gone timer
                     self.twofa_gone_at = None;
 
@@ -1007,7 +1033,11 @@ impl StateMachine {
 
                     // TOTP submission
                     if self.config.twofa.has_secret {
-                        match self.handler_registry.dispatch(&self.agent_client, win).await {
+                        match self
+                            .handler_registry
+                            .dispatch_named("TotpEntryHandler", &self.agent_client, win)
+                            .await
+                        {
                             Some(Ok(crate::handlers::HandlerResult::Handled)) => {
                                 log::info!("TOTP code submitted, waiting for verification");
                                 tokio::time::sleep(std::time::Duration::from_secs(3)).await;

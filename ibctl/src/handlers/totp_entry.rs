@@ -19,7 +19,90 @@ const TWOFA_OCR_NEEDLES: &[&str] = &[
     "authentication code",
     "mobile authentication",
     "enter the code",
+    "verification code",
+    "one-time password",
+    "passcode",
 ];
+
+pub fn looks_like_twofa_components(components: &serde_json::Value) -> bool {
+    let field_count = components
+        .get("textfields")
+        .and_then(serde_json::Value::as_array)
+        .map(|fields| {
+            fields
+                .iter()
+                .filter(|field| {
+                    field
+                        .get("visible")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(true)
+                        && field
+                            .get("enabled")
+                            .and_then(serde_json::Value::as_bool)
+                            .unwrap_or(true)
+                        && field
+                            .get("editable")
+                            .and_then(serde_json::Value::as_bool)
+                            .unwrap_or(true)
+                })
+                .count()
+        })
+        .unwrap_or(0);
+    if field_count == 0 {
+        return false;
+    }
+
+    let mut strings = Vec::new();
+    collect_semantic_strings(components, None, &mut strings);
+    let text = strings.join(" ").to_ascii_lowercase();
+    let has_code_semantics = [
+        "security code",
+        "authentication code",
+        "verification code",
+        "one-time code",
+        "one time code",
+        "one-time password",
+        "passcode",
+        "enter the code",
+        "verification",
+        " otp ",
+    ]
+    .iter()
+    .any(|needle| text.contains(needle));
+    let looks_like_credentials = ["username", "user name", "account username"]
+        .iter()
+        .any(|needle| text.contains(needle))
+        && text.contains("password");
+
+    has_code_semantics && !looks_like_credentials
+}
+
+fn collect_semantic_strings<'a>(
+    value: &'a serde_json::Value,
+    key: Option<&str>,
+    output: &mut Vec<&'a str>,
+) {
+    match value {
+        serde_json::Value::String(text) => {
+            // Do not inspect or retain entered field values. Component metadata,
+            // labels, roles, and button text are sufficient for classification.
+            if key != Some("text") && !text.trim().is_empty() {
+                output.push(text);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_semantic_strings(item, key, output);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for (child_key, child) in map {
+                collect_semantic_strings(child, Some(child_key), output);
+            }
+        }
+        _ => {}
+    }
+}
 
 /// Handles the second factor authentication dialog by generating a TOTP
 /// code and entering it.
@@ -114,10 +197,12 @@ impl DialogHandler for TotpEntryHandler {
                 reason: format!("failed to generate TOTP code: {}", e),
             })?;
 
-            // Consume the single-use TotpCode and type it into the first text field
+            // Consume the single-use TotpCode and use semantic field selection.
+            // The Java agent scores labels/accessibility metadata/focus and falls
+            // back to AT-SPI when a Gateway update changes the Swing component tree.
             let code = totp_code.into_inner();
             let typed = client
-                .type_text(window.id, 0, &code)
+                .type_text_best(window.id, &code)
                 .await
                 .map_err(HandlerError::AgentError)?;
             if !typed {
@@ -126,15 +211,25 @@ impl DialogHandler for TotpEntryHandler {
                 ));
             }
 
-            // Prefer the explicit OK/submit button. Some Gateway builds do not
-            // accept Enter as form submission on the 2FA challenge dialog.
-            let submitted = client
-                .click_button(window.id, "OK")
-                .await
-                .map_err(HandlerError::AgentError)?;
+            // Prefer an explicit submit button. IBKR has renamed this control
+            // across releases, so try semantic variants before pressing Enter.
+            let mut submitted = false;
+            for label in ["OK", "Verify", "Submit", "Continue", "Next"] {
+                match client.click_button(window.id, label).await {
+                    Ok(true) => {
+                        log::debug!("Submitted 2FA code via '{}' button", label);
+                        submitted = true;
+                        break;
+                    }
+                    Ok(false) => {}
+                    Err(error) => {
+                        log::debug!("2FA submit button '{}' was unavailable: {}", label, error);
+                    }
+                }
+            }
 
             if !submitted {
-                log::debug!("No OK button found in 2FA dialog — falling back to Enter");
+                log::debug!("No 2FA submit button found — falling back to Enter");
                 client
                     .send_key(window.id, "Enter")
                     .await
@@ -192,5 +287,36 @@ mod tests {
         };
 
         assert!(handler.can_handle(&window));
+    }
+
+    #[test]
+    fn detects_twofa_from_component_semantics_when_title_changes() {
+        let components = serde_json::json!({
+            "labels": ["Enter the verification code from your authenticator"],
+            "textfields": [{
+                "index": 2,
+                "visible": true,
+                "enabled": true,
+                "editable": true,
+                "metadata": "Verification code"
+            }],
+            "buttons": [{"text": "Continue"}]
+        });
+
+        assert!(looks_like_twofa_components(&components));
+    }
+
+    #[test]
+    fn does_not_mistake_login_form_for_twofa() {
+        let components = serde_json::json!({
+            "labels": ["Username", "Password"],
+            "textfields": [
+                {"visible": true, "enabled": true, "editable": true, "metadata": "Username"},
+                {"visible": true, "enabled": true, "editable": true, "metadata": "Password"}
+            ],
+            "buttons": [{"text": "Log In"}]
+        });
+
+        assert!(!looks_like_twofa_components(&components));
     }
 }

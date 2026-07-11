@@ -162,4 +162,23 @@ impl DialogHandlerRegistry {
         }
         None
     }
+
+    /// Dispatch directly to a named handler after the state machine has already
+    /// identified the window semantically. This avoids forcing every handler's
+    /// cheap title predicate to duplicate richer component-tree classification.
+    pub async fn dispatch_named(
+        &self,
+        name: &str,
+        client: &AgentClient,
+        window: &WindowInfo,
+    ) -> Option<Result<HandlerResult, HandlerError>> {
+        let handler = self.handlers.iter().find(|handler| handler.name() == name)?;
+        log::info!(
+            "Handler '{}' selected semantically for window '{}' (id={})",
+            handler.name(),
+            window.title,
+            window.id
+        );
+        Some(handler.handle(client, window).await)
+    }
 }

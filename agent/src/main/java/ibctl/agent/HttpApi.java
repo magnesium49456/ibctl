@@ -227,6 +227,16 @@ public class HttpApi {
                 return wrapActionResult(result);
             }
 
+            // POST /windows/{id}/type-best
+            if ("POST".equals(method) && "/type-best".equals(subPath)) {
+                String text = extractJsonField(body, "text");
+                String hints = extractJsonField(body, "hints");
+                if (text == null) return wrapError("Missing 'text' field");
+                String result = SwingInspector.typeTextBest(
+                        windowId, text, hints != null ? hints : "");
+                return wrapActionResult(result);
+            }
+
             // POST /windows/{id}/key
             if ("POST".equals(method) && "/key".equals(subPath)) {
                 String key = extractJsonField(body, "key");

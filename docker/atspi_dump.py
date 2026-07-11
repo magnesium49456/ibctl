@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Iterator
 
 try:
     import pyatspi
@@ -80,15 +81,103 @@ def find_window(title: str):
     return None
 
 
+def iter_nodes(node, depth: int = 0, max_depth: int = 40) -> Iterator:
+    if depth > max_depth:
+        return
+    yield node
+    try:
+        count = int(getattr(node, "childCount", 0))
+    except Exception:
+        count = 0
+    for index in range(count):
+        try:
+            yield from iter_nodes(node[index], depth + 1, max_depth)
+        except Exception:
+            continue
+
+
+def editable_metadata(node) -> str:
+    values = [
+        norm(getattr(node, "name", "")),
+        norm(getattr(node, "description", "")),
+        role_name(node),
+    ]
+    return " ".join(value for value in values if value).lower()
+
+
+def type_text(window, value: str, hints: list[str]) -> dict:
+    candidates: list[tuple[int, object, str]] = []
+    for node in iter_nodes(window):
+        role = role_name(node)
+        if not any(token in role for token in ("text", "entry", "password")):
+            continue
+        try:
+            editable = node.queryEditableText()
+        except Exception:
+            continue
+
+        metadata = editable_metadata(node)
+        score = 0
+        for hint in hints:
+            if hint and hint in metadata:
+                score += 120 if hint == "code" else 220
+        if any(token in metadata for token in ("verification", "one-time", "passcode", "otp")):
+            score += 180
+        if any(
+            token in metadata
+            for token in ("username", "user name", "password", "account", "search", "filter")
+        ):
+            score -= 500
+        try:
+            states = node.getState()
+            if states.contains(pyatspi.STATE_FOCUSED):
+                score += 80
+            if not states.contains(pyatspi.STATE_ENABLED):
+                continue
+        except Exception:
+            pass
+        candidates.append((score, editable, metadata))
+
+    if not candidates:
+        return {"typed": False, "error": "No editable AT-SPI text field found"}
+    if len(candidates) == 1:
+        score, editable, metadata = candidates[0]
+        score += 250
+    else:
+        score, editable, metadata = max(candidates, key=lambda candidate: candidate[0])
+
+    try:
+        editable.setTextContents(value)
+    except Exception as exc:
+        return {"typed": False, "error": f"AT-SPI text entry failed: {exc}"}
+    return {
+        "typed": True,
+        "selector": "semantic-metadata" if metadata else "single-editable-field",
+        "score": score,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--title", default="")
+    parser.add_argument("--type-text-stdin", action="store_true")
+    parser.add_argument("--hints", default="")
     args = parser.parse_args()
 
     window = find_window(args.title)
     if window is None:
         print(json.dumps({"error": f"AT-SPI window not found: {args.title}"}))
         return 1
+
+    if args.type_text_stdin:
+        value = sys.stdin.read().strip()
+        if not value:
+            print(json.dumps({"typed": False, "error": "No text supplied on stdin"}))
+            return 1
+        hints = [item.strip().lower() for item in args.hints.split("|") if item.strip()]
+        result = type_text(window, value, hints)
+        print(json.dumps(result))
+        return 0 if result.get("typed") else 1
 
     out = {
         "source": "atspi",

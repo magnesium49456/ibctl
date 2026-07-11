@@ -275,6 +275,13 @@ public class MultiplexedServer {
                 if (text == null) return wrapError("Missing 'text' field");
                 return wrapActionResult(SwingInspector.typeTextByLabel(windowId, label, text));
             }
+            if ("POST".equals(method) && "/type-best".equals(subPath)) {
+                String text = extractJsonField(body, "text");
+                String hints = extractJsonField(body, "hints");
+                if (text == null) return wrapError("Missing 'text' field");
+                return wrapActionResult(SwingInspector.typeTextBest(
+                        windowId, text, hints != null ? hints : ""));
+            }
             if ("POST".equals(method) && "/key".equals(subPath)) {
                 String key = extractJsonField(body, "key");
                 if (key == null) return wrapError("Missing 'key' field");
@@ -845,7 +852,12 @@ public class MultiplexedServer {
                 || titleLower.contains("security code")
                 || titleLower.contains("ib key authenticat")
                 || titleLower.contains("ibkr mobile authenticat")
-                || titleLower.contains("mobile authenticator");
+                || titleLower.contains("mobile authenticator")
+                || titleLower.contains("verification code")
+                || titleLower.contains("one-time password")
+                || titleLower.contains("one time password")
+                || titleLower.contains("passcode")
+                || titleLower.contains("authentication challenge");
     }
 
     private static javax.swing.AbstractButton findButton(Container c, String text) {

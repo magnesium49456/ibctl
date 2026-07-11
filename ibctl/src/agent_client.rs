@@ -99,6 +99,7 @@ pub trait AgentApi: Send + Sync {
     fn click_button(&self, window_id: WindowId, label: &str) -> impl std::future::Future<Output = Result<bool, AgentError>> + Send;
     fn type_text(&self, window_id: WindowId, field_index: usize, text: &str) -> impl std::future::Future<Output = Result<bool, AgentError>> + Send;
     fn type_text_by_label(&self, window_id: WindowId, label: &str, text: &str) -> impl std::future::Future<Output = Result<bool, AgentError>> + Send;
+    fn type_text_best(&self, window_id: WindowId, text: &str) -> impl std::future::Future<Output = Result<bool, AgentError>> + Send;
     fn click_menu(&self, window_id: WindowId, menu_path: &str) -> impl std::future::Future<Output = Result<bool, AgentError>> + Send;
     fn set_checkbox(&self, window_id: WindowId, label: &str, state: Option<bool>) -> impl std::future::Future<Output = Result<bool, AgentError>> + Send;
     fn set_combobox(&self, window_id: WindowId, label: &str, item: &str) -> impl std::future::Future<Output = Result<bool, AgentError>> + Send;
@@ -153,6 +154,9 @@ impl AgentClient {
     pub async fn type_text_by_label(&self, window_id: WindowId, label: &str, text: &str) -> Result<bool, AgentError> {
         self.inner.type_text_by_label_boxed(window_id, label, text).await
     }
+    pub async fn type_text_best(&self, window_id: WindowId, text: &str) -> Result<bool, AgentError> {
+        self.inner.type_text_best_boxed(window_id, text).await
+    }
     pub async fn click_menu(&self, window_id: WindowId, menu_path: &str) -> Result<bool, AgentError> {
         self.inner.click_menu_boxed(window_id, menu_path).await
     }
@@ -197,6 +201,7 @@ trait AgentApiBoxed: Send + Sync {
     fn click_button_boxed<'a>(&'a self, window_id: WindowId, label: &'a str) -> BoxFut<'a, Result<bool, AgentError>>;
     fn type_text_boxed<'a>(&'a self, window_id: WindowId, field_index: usize, text: &'a str) -> BoxFut<'a, Result<bool, AgentError>>;
     fn type_text_by_label_boxed<'a>(&'a self, window_id: WindowId, label: &'a str, text: &'a str) -> BoxFut<'a, Result<bool, AgentError>>;
+    fn type_text_best_boxed<'a>(&'a self, window_id: WindowId, text: &'a str) -> BoxFut<'a, Result<bool, AgentError>>;
     fn click_menu_boxed<'a>(&'a self, window_id: WindowId, menu_path: &'a str) -> BoxFut<'a, Result<bool, AgentError>>;
     fn set_checkbox_boxed<'a>(&'a self, window_id: WindowId, label: &'a str, state: Option<bool>) -> BoxFut<'a, Result<bool, AgentError>>;
     fn set_combobox_boxed<'a>(&'a self, window_id: WindowId, label: &'a str, item: &'a str) -> BoxFut<'a, Result<bool, AgentError>>;
@@ -225,6 +230,9 @@ impl<T: AgentApi> AgentApiBoxed for T {
     }
     fn type_text_by_label_boxed<'a>(&'a self, window_id: WindowId, label: &'a str, text: &'a str) -> BoxFut<'a, Result<bool, AgentError>> {
         Box::pin(self.type_text_by_label(window_id, label, text))
+    }
+    fn type_text_best_boxed<'a>(&'a self, window_id: WindowId, text: &'a str) -> BoxFut<'a, Result<bool, AgentError>> {
+        Box::pin(self.type_text_best(window_id, text))
     }
     fn click_menu_boxed<'a>(&'a self, window_id: WindowId, menu_path: &'a str) -> BoxFut<'a, Result<bool, AgentError>> {
         Box::pin(self.click_menu(window_id, menu_path))
@@ -292,6 +300,38 @@ impl AgentApi for UdsAgent {
         let body = serde_json::json!({ "label": label, "text": text });
         let resp: AgentResponse<serde_json::Value> = self.post(&path, &body).await?;
         Ok(resp.ok)
+    }
+    async fn type_text_best(&self, window_id: WindowId, text: &str) -> Result<bool, AgentError> {
+        const HINTS: &str =
+            "security code|authentication code|verification code|one-time code|passcode|otp|code";
+        let path = format!("/windows/{}/type-best", window_id.0);
+        let body = serde_json::json!({ "text": text, "hints": HINTS });
+        let primary = self
+            .post::<AgentResponse<serde_json::Value>, _>(&path, &body)
+            .await;
+
+        match primary {
+            Ok(resp) if resp.ok => {
+                log::debug!("Semantic text-field selection result: {:?}", resp.data);
+                Ok(true)
+            }
+            Ok(resp) => {
+                log::debug!(
+                    "Semantic Swing text-field selection failed: {:?}; trying AT-SPI",
+                    resp.error
+                );
+                if self.type_text_via_atspi(window_id, text).await {
+                    return Ok(true);
+                }
+                Ok(false)
+            }
+            Err(primary_error) => {
+                if self.type_text_via_atspi(window_id, text).await {
+                    return Ok(true);
+                }
+                Err(primary_error)
+            }
+        }
     }
     async fn click_menu(&self, window_id: WindowId, menu_path: &str) -> Result<bool, AgentError> {
         let path = format!("/windows/{}/menu", window_id.0);
@@ -382,6 +422,37 @@ impl AgentApi for UdsAgent {
 }
 
 impl UdsAgent {
+    async fn type_text_via_atspi(&self, window_id: WindowId, text: &str) -> bool {
+        if !crate::atspi::enabled() {
+            return false;
+        }
+        let title = match self.list_windows().await {
+            Ok(windows) => windows
+                .into_iter()
+                .find(|window| window.id == window_id)
+                .map(|window| window.title),
+            Err(error) => {
+                log::debug!("AT-SPI text entry skipped: could not list windows: {}", error);
+                None
+            }
+        };
+        let Some(title) = title else {
+            return false;
+        };
+
+        match crate::atspi::type_text_by_title(title.clone(), text.to_string()).await {
+            Ok(true) => {
+                log::info!("Entered verification code through AT-SPI fallback for '{}'", title);
+                true
+            }
+            Ok(false) => false,
+            Err(error) => {
+                log::warn!("AT-SPI text entry fallback failed for '{}': {}", title, error);
+                false
+            }
+        }
+    }
+
     async fn dump_components_via_atspi(&self, window_id: WindowId) -> Option<Result<serde_json::Value, AgentError>> {
         if !crate::atspi::enabled() {
             return None;
@@ -522,6 +593,7 @@ impl AgentApi for MockAgent {
     async fn click_button(&self, _: WindowId, _: &str) -> Result<bool, AgentError> { Ok(self.click_result) }
     async fn type_text(&self, _: WindowId, _: usize, _: &str) -> Result<bool, AgentError> { Ok(true) }
     async fn type_text_by_label(&self, _: WindowId, _: &str, _: &str) -> Result<bool, AgentError> { Ok(true) }
+    async fn type_text_best(&self, _: WindowId, _: &str) -> Result<bool, AgentError> { Ok(true) }
     async fn click_menu(&self, _: WindowId, _: &str) -> Result<bool, AgentError> { Ok(self.click_result) }
     async fn set_checkbox(&self, _: WindowId, _: &str, _: Option<bool>) -> Result<bool, AgentError> { Ok(true) }
     async fn set_combobox(&self, _: WindowId, _: &str, _: &str) -> Result<bool, AgentError> { Ok(true) }

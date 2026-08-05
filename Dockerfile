@@ -13,7 +13,7 @@
 #   From source (no release available):
 #     docker build -t ibctl .
 
-ARG IB_GATEWAY_VERSION=10.47.1b
+ARG IB_GATEWAY_VERSION=latest
 ARG IB_GATEWAY_CHANNEL=latest
 ARG IBCTL_VERSION=""
 # Docker's ubuntu:latest tag tracks the latest LTS release; use

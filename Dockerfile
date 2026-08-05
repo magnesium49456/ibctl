@@ -1,6 +1,11 @@
+# syntax=docker/dockerfile:1.7
 # ibctl — IBC replacement for IB Gateway/TWS automation
 # Self-contained build following gnzsnz/ib-gateway-docker's proven process,
 # but without IBC. ibctl replaces it entirely.
+#
+# BuildKit cache mounts (RUN --mount=type=cache) are used throughout to
+# speed up apt-get, cargo, and pip across CI runs. Requires BuildKit
+# (Woodpecker's plugin-docker-buildx uses it by default).
 #
 # Two build modes:
 #   Fast (pre-built release):
@@ -8,7 +13,7 @@
 #   From source (no release available):
 #     docker build -t ibctl .
 
-ARG IB_GATEWAY_VERSION=latest
+ARG IB_GATEWAY_VERSION=10.47.1b
 ARG IB_GATEWAY_CHANNEL=latest
 ARG IBCTL_VERSION=""
 # Docker's ubuntu:latest tag tracks the latest LTS release; use
@@ -118,7 +123,6 @@ RUN set -eux; \
     && harden_ubuntu_apt_sources \
     && apt_get_update_with_fallback -y \
     && apt-get install --no-install-recommends --yes curl \
-    && apt-get clean && rm -rf /var/lib/apt/lists/* \
     # Validate supported architectures
     && if [ "${TARGETARCH}" != "amd64" ] && [ "${TARGETARCH}" != "arm64" ]; then \
         echo "Unsupported Docker target architecture: ${TARGETARCH}" >&2; \
@@ -256,17 +260,35 @@ RUN mkdir -p /prebuilt \
 ##############################################################################
 # Stage 2b: Build Rust binary from source (fallback)
 ##############################################################################
-FROM rust:1.83-bookworm AS rust-builder
+FROM rust:1.97-bookworm AS rust-builder
 ARG IBCTL_BUILD_VERSION=""
 COPY Cargo.toml Cargo.lock /build/
 COPY .cargo/ /build/.cargo/
 COPY ibctl/ /build/ibctl/
+# .build-version is written by CI's compute-version step with the output of
+# `git describe --tags --always` — e.g. `v1.1.0-65-g7009dde`. The file is
+# also committed with placeholder content "dev" so local `docker build .`
+# without CI still works.
+COPY .build-version /build/.build-version
 WORKDIR /build
 # Use thin LTO for Docker source builds (fast). Release workflow uses fat LTO.
-# IBCTL_BUILD_VERSION is read by build.rs to embed the git tag version.
-RUN sed -i 's/lto = "fat"/lto = "thin"/' /build/.cargo/config.toml \
+# IBCTL_BUILD_VERSION is read by build.rs to embed the version string.
+# Priority: explicit --build-arg > .build-version file > "unknown".
+# Cargo registry + git + build cache mounts survive across CI runs so cargo
+# doesn't re-download all crates or re-compile untouched dependencies.
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/build/target,sharing=locked \
+    sed -i 's/lto = "fat"/lto = "thin"/' /build/.cargo/config.toml \
     && sed -i 's/codegen-units = 1/codegen-units = 16/' /build/.cargo/config.toml \
-    && IBCTL_BUILD_VERSION="${IBCTL_BUILD_VERSION}" cargo build --release && strip target/release/ibctl
+    && VERSION="${IBCTL_BUILD_VERSION:-$(cat .build-version 2>/dev/null || echo unknown)}" \
+    && echo "Building with IBCTL_BUILD_VERSION=$VERSION" \
+    && IBCTL_BUILD_VERSION="$VERSION" cargo build --release \
+    && strip target/release/ibctl \
+    # Cache mount at /build/target is ephemeral after this RUN exits — copy
+    # the built binary to a regular path (/build/) so COPY --from can pick it
+    # up in the final stage.
+    && cp target/release/ibctl /build/ibctl-release
 
 ##############################################################################
 # Stage 2c: Build Java agent from source (fallback)
@@ -397,9 +419,34 @@ RUN set -eux; \
     && mkdir -p /opt/ibctl/persist/logs \
     && mkdir -p /run/ibctl && chmod 700 /run/ibctl
 
+# Install dashboard Python dependencies via uv (10-50× faster than pip).
+# COPY --from the official uv image — skips the HOME-sensitive install
+# script. Pinning to the 0.11 minor track: patches come in, breaking
+# changes don't.
+#
+# `uv sync --frozen --no-dev` installs the exact versions in uv.lock — no
+# resolver work, no version float. `--frozen` fails loud if the lockfile
+# drifts from pyproject.toml, so a stale lock caught in CI instead of
+# shipping. The venv is auto-created at .venv inside the working dir.
+# `--no-dev` skips the [dependency-groups] dev group (PEP 735) — pytest,
+# coverage, pytest-asyncio — production only.
+#
+# Layer ordering: uv install runs BEFORE the binary copy so it stays cached
+# across commits that only change Rust/Java code (every commit changes
+# build.rs's embedded version, invalidating the binaries; Python deps
+# almost never change).
+COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /usr/local/bin/uv
+COPY dashboard/pyproject.toml dashboard/uv.lock /opt/ibctl/dashboard/
+WORKDIR /opt/ibctl/dashboard
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
+    uv sync --frozen --no-dev \
+    # uv is build-only — drop it from the final image to keep size down
+    && rm -f /usr/local/bin/uv
+WORKDIR /
+
 # Copy ibctl binaries — prefer pre-built, fall back to source
 COPY --from=prebuilt-downloader /prebuilt/ /tmp/prebuilt/
-COPY --from=rust-builder /build/target/release/ibctl /tmp/source/ibctl
+COPY --from=rust-builder /build/ibctl-release /tmp/source/ibctl
 COPY --from=java-builder /build/agent/target/ibctl-agent.jar /tmp/source/ibctl-agent.jar
 RUN if [ -f /tmp/prebuilt/ibctl ]; then \
         echo "Using pre-built ibctl release" \
@@ -410,12 +457,6 @@ RUN if [ -f /tmp/prebuilt/ibctl ]; then \
         && cp /tmp/source/ibctl /opt/ibctl/ibctl \
         && cp /tmp/source/ibctl-agent.jar /opt/ibctl/ibctl-agent.jar; \
     fi && rm -rf /tmp/prebuilt /tmp/source
-
-# Install dashboard Python dependencies in a venv
-COPY dashboard/pyproject.toml /opt/ibctl/dashboard/pyproject.toml
-RUN python3 -m venv /opt/ibctl/dashboard/.venv \
-    && /opt/ibctl/dashboard/.venv/bin/pip install --no-cache-dir \
-        fastapi uvicorn jinja2 sse-starlette requests beautifulsoup4 httpx pyzmq
 
 # Copy dashboard source
 COPY dashboard/app /opt/ibctl/dashboard/app
@@ -436,6 +477,15 @@ WORKDIR /home/ibgateway
 # authenticated sessions and forcing re-authentication.
 
 ENTRYPOINT ["/opt/ibctl/entrypoint.sh"]
+
+# Mnemonic build badge: the SOURCE_HEX (short commit SHA) is passed as a
+# build-arg by CI and baked into the image so the badge mnemonic reflects
+# code identity. The BUILD_TIME_* values are computed by entrypoint.sh at
+# container start — that gives the operator "when did this container start"
+# (deploy time) instead of "when was the layer built", which is the more
+# useful signal for at-a-glance change detection.
+ARG SOURCE_HEX=""
+ENV IBCTL_BUILD_SHA=$SOURCE_HEX
 
 LABEL org.opencontainers.image.source=https://github.com/Lcstyle/ibctl
 LABEL org.opencontainers.image.description="IBC replacement for automated IB Gateway/TWS login and session management"

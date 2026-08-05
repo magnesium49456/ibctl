@@ -406,6 +406,7 @@ RUN set -eux; \
     && apt-get install --no-install-recommends --yes \
         gettext-base socat xvfb x11vnc sshpass openssh-client telnet iputils-ping \
         dbus-x11 at-spi2-core libatk-wrapper-java libatk-wrapper-java-jni python3-pyatspi \
+        libgtk-3-0t64 libgdk-pixbuf-2.0-0 \
         oathtool tesseract-ocr python3 python3-pip python3-venv websockify \
     && apt-get clean && rm -rf /var/lib/apt/lists/* \
     # Remove default ubuntu user if present

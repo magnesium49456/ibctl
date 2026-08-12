@@ -29,6 +29,7 @@
 //!   WindowClassMorphed      → 500 ms  (not wired yet; see TODO on the variant)
 //!   LoginFormVisible        → 1 s
 //!   DisconnectedLabelStable → 2 s
+//!   ConnectionStatusEvent   → 2 s
 //!
 //! Every matured revocation emits a structured log line
 //! (`proof revoked source=<tag> next=<state>`) so operators grepping
@@ -54,6 +55,7 @@ pub enum RevocationTag {
     SessionConflict,
     LoginFormVisible,
     DisconnectedLabelStable,
+    ConnectionStatusEvent,
     WindowClassMorphed,
     ApiPortListenerLost,
 }
@@ -69,6 +71,7 @@ impl RevocationTag {
             Self::SessionConflict => "session_conflict",
             Self::LoginFormVisible => "login_form_visible",
             Self::DisconnectedLabelStable => "disconnected_label",
+            Self::ConnectionStatusEvent => "connection_status_event",
             Self::WindowClassMorphed => "window_class_morphed",
             Self::ApiPortListenerLost => "api_port_listener_lost",
         }
@@ -117,6 +120,9 @@ pub enum RevocationSource {
     /// Disconnected label observed (label-based detection). Longest
     /// debounce — label refresh lag is a known transient source.
     DisconnectedLabelStable,
+    /// Java agent observed the main Gateway API Server status change from
+    /// connected to disconnected. Debounced again after the agent's polling.
+    ConnectionStatusEvent,
     /// Main window class changed unexpectedly (e.g. `ibgateway.ay` → `ibgateway.az`)
     /// without the benign-update path that `do_connected` recognizes.
     // TODO: `do_connected` currently only logs benign class changes and does
@@ -139,6 +145,7 @@ impl RevocationSource {
             Self::SessionConflict => Duration::from_millis(0),
             Self::LoginFormVisible => Duration::from_millis(1000),
             Self::DisconnectedLabelStable => Duration::from_millis(2000),
+            Self::ConnectionStatusEvent => Duration::from_millis(2000),
             Self::WindowClassMorphed { .. } => Duration::from_millis(500),
             // The probe task already debounced via consecutive failure count.
             Self::ApiPortListenerLost => Duration::ZERO,
@@ -153,7 +160,10 @@ impl RevocationSource {
             Self::ReloginDialog => State::ReconnectingSession,
             Self::SessionConflict => State::HandlingSessionConflict,
             Self::LoginFormVisible => State::WaitingForLogin,
-            Self::DisconnectedLabelStable => State::WaitingForLogin,
+            // Preserve the JVM during normal IB maintenance and wait for
+            // positive recovery before attempting a full authentication.
+            Self::DisconnectedLabelStable => State::ReconnectingSession,
+            Self::ConnectionStatusEvent => State::ReconnectingSession,
             Self::WindowClassMorphed { .. } => State::WaitingForLogin,
             // Restart kills the JVM cleanly; the port is gone anyway.
             Self::ApiPortListenerLost => State::Restarting,
@@ -169,6 +179,7 @@ impl RevocationSource {
             Self::SessionConflict => RevocationTag::SessionConflict,
             Self::LoginFormVisible => RevocationTag::LoginFormVisible,
             Self::DisconnectedLabelStable => RevocationTag::DisconnectedLabelStable,
+            Self::ConnectionStatusEvent => RevocationTag::ConnectionStatusEvent,
             Self::WindowClassMorphed { .. } => RevocationTag::WindowClassMorphed,
             Self::ApiPortListenerLost => RevocationTag::ApiPortListenerLost,
         }
@@ -353,7 +364,11 @@ mod tests {
         );
         assert_eq!(
             RevocationSource::DisconnectedLabelStable.next_state(),
-            State::WaitingForLogin
+            State::ReconnectingSession
+        );
+        assert_eq!(
+            RevocationSource::ConnectionStatusEvent.next_state(),
+            State::ReconnectingSession
         );
         assert_eq!(
             RevocationSource::WindowClassMorphed {

@@ -311,6 +311,8 @@ impl StateMachine {
             self.dwell_guard = None;
         }
         if next_is_connected && !curr_is_connected {
+            // Ignore connection events from earlier startup/auth phases.
+            self.connection_event_disconnected = false;
             // Write the cold-restart-equivalent marker ONLY when both
             // conditions hold:
             //   (a) we got here via a credential-gathering / login-flow
@@ -376,6 +378,7 @@ impl StateMachine {
             self.connected_continuously_since = None;
             self.stop_api_port_probe();
             self.revocation.clear_all();
+            self.connection_event_disconnected = false;
             self.abort_client_id_task();
             self.connected_window_class = None;
             self.handler_registry.reset();
@@ -705,13 +708,24 @@ impl StateMachine {
                 );
             }
             AgentEvent::ConnectionStatusChanged { ref from, ref to, .. } => {
-                // Informational only — do NOT drive state changes from this event.
-                // Events can arrive with stale "disconnected" state while the state
-                // machine is still in Launching/Login, and would trigger false-positive
-                // restarts on first Connected entry. Match IBC's reactive model:
-                // disconnect detection happens via error dialog handling + active
-                // label inspection during Connected state.
                 log::warn!("Event: connection_status_changed {} -> {}", from, to);
+
+                // Startup events can be stale. Only changes observed during an
+                // established Connected lifecycle drive revocation; a matching
+                // connected event cancels a transient disconnect debounce.
+                if self.state == State::Connected {
+                    if to.eq_ignore_ascii_case("disconnected") {
+                        self.connection_event_disconnected = true;
+                        let _ = self.revocation.observe(
+                            revocation::RevocationSource::ConnectionStatusEvent,
+                        );
+                    } else if to.eq_ignore_ascii_case("connected") {
+                        self.connection_event_disconnected = false;
+                        self.revocation.clear(
+                            revocation::RevocationTag::ConnectionStatusEvent,
+                        );
+                    }
+                }
             }
         }
 
@@ -1345,7 +1359,10 @@ impl StateMachine {
             return Ok(State::DismissingPopups);
         }
 
-        match self.handler_registry.dispatch(&self.agent_client, win).await {
+        // The login and authenticated windows share the generic Gateway title.
+        // We confirmed login fields above, so dispatch this handler by semantic
+        // identity instead of widening its popup-registry predicate.
+        match self.handler_registry.dispatch_named("LoginHandler", &self.agent_client, win).await {
             Some(Ok(crate::handlers::HandlerResult::Handled)) => {
                 log::info!("Login submitted via handler");
                 // The login window will morph into the connected window without
@@ -2004,6 +2021,19 @@ impl StateMachine {
             return Ok(next);
         }
 
+        // Agent status changes are direct negative evidence for an established
+        // session and cover outages that the full UI scrape can miss.
+        if self.connection_event_disconnected {
+            let src = revocation::RevocationSource::ConnectionStatusEvent;
+            if let Some(fired) = self.revocation.observe(src) {
+                let next = fired.next_state();
+                log::warn!("proof revoked source=connection_status_event next={}", next);
+                return Ok(next);
+            }
+        } else {
+            self.revocation.clear(revocation::RevocationTag::ConnectionStatusEvent);
+        }
+
         // --- API port listener ---
         // Ground-truth TCP probe to Gateway's listener. The probe task tracks
         // consecutive failures independently; we just consume the signal here.
@@ -2248,7 +2278,10 @@ impl StateMachine {
         // tokio::select! in run(). Events provide instant dialog detection.
         // This sleep is now just a reconciliation tick — events handle the fast path.
 
-        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        // Pending contradictions need a short cadence so two-second debounce
+        // windows are meaningful; healthy steady state remains low overhead.
+        let reconciliation_delay = if self.revocation.any_pending() { 1 } else { 10 };
+        tokio::time::sleep(std::time::Duration::from_secs(reconciliation_delay)).await;
         // Stay-Connected self-return. The revocation bus decides when to
         // demote; until it does, keep returning the same state.
         Ok(State::Connected)
@@ -2373,12 +2406,9 @@ impl StateMachine {
                         let t = w.title.to_lowercase();
                         if t.contains("ib gateway") || t.contains("ibkr gateway") {
                             if let Ok(components) = self.agent_client.dump_components(w.id).await {
-                                let has_textfields = components.get("textfields")
-                                    .and_then(|t| t.as_array())
-                                    .is_some_and(|a| !a.is_empty());
-                                if has_textfields {
+                                if components_have_login_form(&components) {
                                     confirmed_login_form = true;
-                                } else {
+                                } else if components_confirm_authenticated(&components) {
                                     confirmed_authenticated = true;
                                 }
                             }
@@ -3106,6 +3136,12 @@ fn components_have_login_form(components: &serde_json::Value) -> bool {
         .is_some_and(|a| !a.is_empty())
 }
 
+/// Recovery proof requires an explicit API Server: connected label. The
+/// Gateway window and listener can both remain present during maintenance.
+fn components_confirm_authenticated(components: &serde_json::Value) -> bool {
+    !components_have_login_form(components) && components_indicate_connected(components)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3662,6 +3698,12 @@ login_dialog_timeout_secs = 0
         );
     }
 
+    #[test]
+    fn test_recovery_requires_explicit_connected_label() {
+        assert!(!components_confirm_authenticated(&parse(FIXTURE_MAIN_DISCONNECTED)));
+        assert!(components_confirm_authenticated(&parse(FIXTURE_API_SERVER_UP_API_CLIENT_DOWN)));
+    }
+
     // ================================================================
     // Integration tests — fail-closed state transitions
     // ================================================================
@@ -3746,6 +3788,46 @@ login_dialog_timeout_secs = 0
         // to Restarting on the `supervisor.is_running()` check.
         sm.supervisor.set_test_force_running(true);
         sm
+    }
+
+    #[tokio::test]
+    async fn test_connection_event_starts_and_clears_revocation_debounce() {
+        let mut sm = make_test_state_machine(MockAgent::default());
+        sm.state = State::Connected;
+        sm.handle_agent_event(crate::agent_events::AgentEvent::ConnectionStatusChanged {
+            from: "connected".into(), to: "disconnected".into(),
+        }).await;
+        assert!(sm.connection_event_disconnected);
+        assert!(sm.revocation.is_pending(revocation::RevocationTag::ConnectionStatusEvent));
+
+        sm.handle_agent_event(crate::agent_events::AgentEvent::ConnectionStatusChanged {
+            from: "disconnected".into(), to: "connected".into(),
+        }).await;
+        assert!(!sm.connection_event_disconnected);
+        assert!(!sm.revocation.is_pending(revocation::RevocationTag::ConnectionStatusEvent));
+    }
+
+    #[tokio::test]
+    async fn test_startup_disconnect_event_is_ignored() {
+        let mut sm = make_test_state_machine(MockAgent::default());
+        sm.state = State::WaitingForLogin;
+        sm.handle_agent_event(crate::agent_events::AgentEvent::ConnectionStatusChanged {
+            from: "connected".into(), to: "disconnected".into(),
+        }).await;
+        assert!(!sm.connection_event_disconnected);
+        assert!(!sm.revocation.is_pending(revocation::RevocationTag::ConnectionStatusEvent));
+    }
+
+    #[tokio::test]
+    async fn test_mature_connection_event_enters_reconnecting_session() {
+        let mut sm = make_test_state_machine(MockAgent::default());
+        sm.state = State::Connected;
+        sm.connection_event_disconnected = true;
+        sm.revocation.seed_first_seen_for_tests(
+            revocation::RevocationSource::ConnectionStatusEvent,
+            Duration::from_secs(3),
+        );
+        assert_eq!(sm.do_connected().await.unwrap(), State::ReconnectingSession);
     }
 
     /// A Gateway main window matching how it shows up in /windows responses.
@@ -3883,10 +3965,11 @@ login_dialog_timeout_secs = 0
         // Act
         let result = sm.do_connected().await.expect("handler should not error");
 
-        // Assert: label-based liveness catches the disconnect, transitions to WaitingForLogin.
+        // Assert: preserve the JVM while the graduated recovery flow waits
+        // for IB's maintenance connection to return.
         assert_eq!(
-            result, State::WaitingForLogin,
-            "Connected state liveness check must detect 'API Server: disconnected' label and transition to WaitingForLogin once debounce matures"
+            result, State::ReconnectingSession,
+            "Disconnected API Server label must enter reconnect recovery once debounce matures"
         );
     }
 
@@ -4258,6 +4341,7 @@ login_dialog_timeout_secs = 0
         for source_tag in [
             revocation::RevocationTag::LoginFormVisible,
             revocation::RevocationTag::DisconnectedLabelStable,
+            revocation::RevocationTag::ConnectionStatusEvent,
             revocation::RevocationTag::ErrorDialog,
         ] {
             assert!(

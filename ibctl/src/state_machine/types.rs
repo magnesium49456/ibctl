@@ -328,6 +328,9 @@ pub struct StateMachine {
     /// Used by `do_connected` to decide when a contradiction has persisted
     /// long enough to revoke the proof and transition out.
     pub(super) revocation: RevocationTracker,
+    /// Whether the agent's latest connection event for this Connected
+    /// lifecycle says the Gateway session is disconnected.
+    pub(super) connection_event_disconnected: bool,
 
     // --- HITL 2FA state ---
     /// Consecutive 2FA timeouts. Incremented on each `do_wait_for_2fa` timeout,
@@ -525,6 +528,7 @@ impl StateMachine {
             snapshot_tx,
             snapshot_version: 0,
             revocation: RevocationTracker::new(),
+            connection_event_disconnected: false,
             consecutive_2fa_timeouts: 0,
             hitl_entered_at: None,
             hitl_next_retry_at: None,

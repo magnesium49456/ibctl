@@ -69,11 +69,11 @@ impl DialogHandler for LoginHandler {
             return false;
         }
 
-        let title = window.title.to_lowercase();
-        title.contains("ibkr gateway")
-            || title.contains("ib gateway")
-            || title.contains("login")
-            || title.contains("interactive brokers")
+        // The login form and authenticated application both use the title
+        // "IBKR Gateway". The authentication state machine confirms login
+        // fields and dispatches this handler by name, so registry matching is
+        // deliberately limited to explicit login titles.
+        window.title.to_lowercase().contains("login")
     }
 
     fn handle<'a>(
@@ -197,5 +197,42 @@ impl DialogHandler for LoginHandler {
             log::info!("Login credentials submitted (mode={})", self.trading_mode);
             Ok(HandlerResult::Handled)
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent_client::Bounds;
+
+    fn window(title: &str) -> WindowInfo {
+        WindowInfo {
+            id: WindowId(1),
+            title: title.to_string(),
+            class: "ibgateway.test".to_string(),
+            bounds: Some(Bounds::default()),
+            visible: true,
+        }
+    }
+
+    #[test]
+    fn generic_gateway_window_is_not_a_login_dialog() {
+        let handler = LoginHandler::new(
+            "user".to_string(),
+            SecretString::from("password".to_string()),
+            TradingMode::Live,
+        );
+        assert!(!handler.can_handle(&window("IBKR Gateway")));
+        assert!(!handler.can_handle(&window("Interactive Brokers")));
+    }
+
+    #[test]
+    fn explicit_login_title_is_still_recognized() {
+        let handler = LoginHandler::new(
+            "user".to_string(),
+            SecretString::from("password".to_string()),
+            TradingMode::Live,
+        );
+        assert!(handler.can_handle(&window("Interactive Brokers Login")));
     }
 }

@@ -17,15 +17,10 @@ pub enum TotpError {
     OathtoolFailed(String),
     #[error("invalid base32 TOTP secret: {0}")]
     InvalidSecret(String),
-    #[error("system clock is before the Unix epoch")]
-    ClockBeforeUnixEpoch,
 }
 
 /// Trait for TOTP code generation providers.
 pub trait TotpCodeGenerator: Send + Sync {
-    /// Generate a 6-digit TOTP code from a base32-encoded secret.
-    fn generate(&self, secret: &str) -> Result<TotpCode, TotpError>;
-
     /// Generate for an explicitly verified Unix timestamp.
     fn generate_at(&self, secret: &str, timestamp: u64) -> Result<TotpCode, TotpError>;
 }
@@ -37,12 +32,6 @@ pub trait TotpCodeGenerator: Send + Sync {
 pub struct OathtoolProvider;
 
 impl TotpCodeGenerator for OathtoolProvider {
-    fn generate(&self, secret: &str) -> Result<TotpCode, TotpError> {
-        let timestamp = crate::time_sync::corrected_unix_seconds()
-            .map_err(|_| TotpError::ClockBeforeUnixEpoch)?;
-        self.generate_at(secret, timestamp)
-    }
-
     fn generate_at(&self, secret: &str, timestamp: u64) -> Result<TotpCode, TotpError> {
         use std::io::Write;
         use std::process::{Command, Stdio};
@@ -77,13 +66,6 @@ impl TotpCodeGenerator for OathtoolProvider {
 pub struct BuiltinProvider;
 
 impl TotpCodeGenerator for BuiltinProvider {
-    fn generate(&self, secret: &str) -> Result<TotpCode, TotpError> {
-        let timestamp = crate::time_sync::corrected_unix_seconds()
-            .map_err(|_| TotpError::ClockBeforeUnixEpoch)?;
-
-        self.generate_at(secret, timestamp)
-    }
-
     fn generate_at(&self, secret: &str, timestamp: u64) -> Result<TotpCode, TotpError> {
         let code = generate_totp_at(secret, timestamp, 30, 6)?;
         log::debug!("Generated built-in TOTP code (length={})", code.len());
@@ -336,10 +318,10 @@ mod tests {
     }
 
     #[test]
-    fn create_builtin_provider_generates_code() {
+    fn create_builtin_provider_generates_code_at_explicit_time() {
         let provider = create_provider(TotpProvider::Builtin).unwrap();
         let code = provider
-            .generate("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ")
+            .generate_at("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", 59)
             .unwrap()
             .into_inner();
         assert_eq!(code.len(), 6);

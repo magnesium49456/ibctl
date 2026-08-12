@@ -13,7 +13,7 @@ export IBCTL_BUILD_TIME_UTC=$(date -u +'%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo 
 
 # Force IPv4 for Gateway API ports — without this, Gateway binds to IPv6
 # and IPv4 clients can't connect. Matches gnzsnz's JDK_JAVA_OPTIONS setting.
-export JDK_JAVA_OPTIONS="${JDK_JAVA_OPTIONS:--Djava.net.preferIPv4Stack=true}"
+export JDK_JAVA_OPTIONS="${JDK_JAVA_OPTIONS:--Djava.net.preferIPv4Stack=true --enable-native-access=ALL-UNNAMED,javafx.graphics,javafx.web}"
 
 # --- Auto-update ibctl binaries ---
 # The deploy script downloads binaries on the HOST and volume-mounts them.
@@ -234,7 +234,7 @@ fi
 # IB Gateway always interprets this time in UTC regardless of TIME_ZONE setting
 # See: https://github.com/IbcAlpha/IBC/issues/245
 if [ -n "${AUTO_RESTART_TIME:-}" ] && [ -n "${TZ:-}" ] && [ "$TZ" != "Etc/UTC" ] && [ "$TZ" != "UTC" ]; then
-    UTC_RESTART=$(python3 -c "
+    UTC_RESTART=$(/usr/bin/python3 -c "
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import sys
@@ -261,8 +261,10 @@ fi
 # Create jts.ini helper — ensures UseSSL=true and API-only mode
 create_jts_ini() {
     local config_dir="$1"
+    local api_port="$2"
     local trusted_ips="${TWS_TRUSTED_IPS:-127.0.0.1}"
     export TWS_TRUSTED_IPS="$trusted_ips"
+    export IBCTL_GATEWAY_API_PORT="$api_port"
 
     if [ ! -d "$config_dir" ]; then
         mkdir -p "$config_dir"
@@ -281,6 +283,14 @@ create_jts_ini() {
         else
             sed -i "/^\[IBGateway\]/a TrustedIPs=${trusted_ips}" "$config_dir/jts.ini"
         fi
+        # Latest Gateway releases may rewrite this to 4000. ibctl's live/paper
+        # probes and socat bridge use 4001/4002, so enforce the selected mode's
+        # port before every launch instead of waiting forever on the wrong one.
+        if grep -q "^LocalServerPort=" "$config_dir/jts.ini"; then
+            sed -i "s|^LocalServerPort=.*|LocalServerPort=${api_port}|" "$config_dir/jts.ini"
+        else
+            sed -i "/^\[IBGateway\]/a LocalServerPort=${api_port}" "$config_dir/jts.ini"
+        fi
         # NOTE: Gateway defaults to Africa/Abidjan (UTC) when running headless
         # and overwrites jts.ini on every login (recreates the file, so chmod
         # is useless). This is a known IB Gateway bug — gnzsnz documents it.
@@ -297,6 +307,7 @@ create_jts_ini() {
 [IBGateway]
 WriteDebug=false
 TrustedIPs=${trusted_ips}
+LocalServerPort=${api_port}
 ApiOnly=true
 ReadOnlyApi=no
 
@@ -345,7 +356,12 @@ trap cleanup SIGINT SIGTERM
 # --- Single mode (live or paper) ---
 if [ "${TRADING_MODE:-live}" != "both" ]; then
     JTS_CONFIG_DIR="${TWS_SETTINGS_PATH:-/home/ibgateway/Jts}"
-    create_jts_ini "$JTS_CONFIG_DIR"
+    if [ "${TRADING_MODE:-live}" = "paper" ]; then
+        GATEWAY_API_PORT="${IBCTL_PAPER_API_PORT:-4002}"
+    else
+        GATEWAY_API_PORT="${IBCTL_LIVE_API_PORT:-4001}"
+    fi
+    create_jts_ini "$JTS_CONFIG_DIR" "$GATEWAY_API_PORT"
 
     echo "Starting ibctl in ${TRADING_MODE:-live} mode..."
     exec /opt/ibctl/ibctl --config /opt/ibctl/ibctl.toml
@@ -365,7 +381,7 @@ echo "=========================================="
 
 # --- Live instance ---
 LIVE_SETTINGS="${TWS_SETTINGS_PATH:-/home/ibgateway/Jts}_live"
-create_jts_ini "$LIVE_SETTINGS"
+create_jts_ini "$LIVE_SETTINGS" "${IBCTL_LIVE_API_PORT:-4001}"
 
 echo "Starting live instance..."
 TRADING_MODE=live \
@@ -380,7 +396,7 @@ echo "Live instance PID: ${PIDS[-1]}"
 
 # --- Paper instance ---
 PAPER_SETTINGS="${TWS_SETTINGS_PATH:-/home/ibgateway/Jts}_paper"
-create_jts_ini "$PAPER_SETTINGS"
+create_jts_ini "$PAPER_SETTINGS" "${IBCTL_PAPER_API_PORT:-4002}"
 
 # Paper uses separate credentials if provided
 PAPER_USER="${TWS_USERID_PAPER:-$TWS_USERID}"

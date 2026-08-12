@@ -203,8 +203,10 @@ host sync at least every five minutes and immediately after a 2FA rejection):
 .\host\windows\Install-IbctlTimeSync.ps1
 ```
 
-The Gateway's increasing retry countdown is parsed and treated as a hard
-deadline with a two-second safety margin, so ibctl will not submit early.
+The Gateway's increasing retry countdown is read from the visible UI and
+treated as a hard deadline with a two-second safety margin. If the countdown
+cannot be read yet, ibctl keeps submissions blocked rather than inventing a
+fallback delay.
 See [Autonomous operations](docs/autonomous-operations.md) for watchdog,
 retention, backup, recovery, and rollback behavior.
 

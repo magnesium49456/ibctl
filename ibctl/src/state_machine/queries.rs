@@ -273,6 +273,7 @@ impl StateMachine {
                 "last_verified_unix_secs": crate::time_sync::last_verified_unix_secs(),
                 "server_retry_in_secs": self.twofa_retry_not_before
                     .map(|deadline| deadline.saturating_duration_since(std::time::Instant::now()).as_secs()),
+                "waiting_for_screen_countdown": self.twofa_retry_waiting_for_screen,
             },
             "watchdog": {
                 "consecutive_jvm_restarts": self.consecutive_jvm_restarts,

@@ -711,7 +711,7 @@ public class MultiplexedServer {
      * Emit error_dialog with message text and button labels.
      */
     private static void emitErrorDialogEvent(Window w, String title) {
-        String message = null;
+        java.util.List<String> messages = new java.util.ArrayList<>();
         java.util.List<String> buttons = new java.util.ArrayList<>();
 
         java.util.List<Component> all = new java.util.ArrayList<>();
@@ -721,10 +721,10 @@ public class MultiplexedServer {
             if (c instanceof JLabel) {
                 String text = ((JLabel) c).getText();
                 if (text != null && !text.isEmpty() && text.length() > 3) {
-                    // Take the longest label as the message
-                    if (message == null || text.length() > message.length()) {
-                        message = text;
-                    }
+                    // Preserve every visible label. Retry countdowns are often
+                    // rendered in a shorter, separate label; retaining only the
+                    // longest label loses the server-enforced wait time.
+                    if (!messages.contains(text)) messages.add(text);
                 }
             } else if (c instanceof JButton) {
                 String text = ((JButton) c).getText();
@@ -735,7 +735,9 @@ public class MultiplexedServer {
         }
 
         // Skip if no meaningful content
-        if (message == null && buttons.isEmpty()) return;
+        if (messages.isEmpty() && buttons.isEmpty()) return;
+
+        String message = messages.isEmpty() ? null : String.join(" ", messages);
 
         long seq = sequence.incrementAndGet();
         StringBuilder sb = new StringBuilder(256);

@@ -13,7 +13,8 @@ use serde_json::Value;
 use crate::agent_client::{AgentClient, WindowInfo};
 use crate::handlers::{DialogHandler, HandlerError, HandlerResult};
 
-pub const IBC_DIALOG_COVERAGE: &[&str] = &[
+#[cfg(test)]
+const IBC_DIALOG_COVERAGE: &[&str] = &[
     "AcceptIncomingConnectionDialogHandler",
     "ApiChangeConfirmationDialogHandler",
     "AutoRestartConfirmationDialog",

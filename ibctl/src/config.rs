@@ -649,6 +649,7 @@ impl RecoveryTimingConfig {
         };
         let env_u64 = |key: &str, current: u64| -> u64 {
             match std::env::var(key) {
+                Ok(v) if v.trim().is_empty() => current,
                 Ok(v) => v.parse().unwrap_or_else(|_| {
                     log::warn!("Ignoring non-numeric {key}={v:?}; using {current}");
                     current
@@ -658,6 +659,7 @@ impl RecoveryTimingConfig {
         };
         let env_u32 = |key: &str, current: u32| -> u32 {
             match std::env::var(key) {
+                Ok(v) if v.trim().is_empty() => current,
                 Ok(v) => v.parse().unwrap_or_else(|_| {
                     log::warn!("Ignoring non-numeric {key}={v:?}; using {current}");
                     current

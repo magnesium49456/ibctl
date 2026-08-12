@@ -17,12 +17,20 @@ ARG IB_GATEWAY_VERSION=latest
 ARG IB_GATEWAY_CHANNEL=latest
 ARG IB_GATEWAY_REFRESH=0
 ARG IBCTL_VERSION=""
-# Docker's ubuntu:latest tag tracks the latest LTS release; use
-# --build-arg UBUNTU_IMAGE_TAG=24.04 to pin a specific LTS for repeatability.
-ARG UBUNTU_IMAGE_TAG=latest
+# Stay on the current LTS series while --pull and apt-get upgrade consume every
+# published security update. Floating ubuntu:latest can jump to an interim or
+# new LTS without a compatibility canary designed for an OS-series migration.
+ARG UBUNTU_IMAGE_TAG=26.04
+ARG DASHBOARD_PYTHON_VERSION=3.14.7
+ARG PYTHON_DEPENDENCY_REFRESH=0
 ARG UBUNTU_APT_MIRROR=mirror+http://mirrors.ubuntu.com/mirrors.txt
 ARG UBUNTU_APT_FALLBACK_MIRROR=https://archive.ubuntu.com/ubuntu
 ARG UBUNTU_APT_PORTS_FALLBACK_MIRROR=https://ports.ubuntu.com/ubuntu-ports
+
+# Current upstream CPython patch release for the dashboard. Only /usr/local is
+# copied into the Ubuntu runtime; OS-integrated accessibility scripts continue
+# to use /usr/bin/python3 from Ubuntu.
+FROM python:${DASHBOARD_PYTHON_VERSION}-slim-bookworm AS dashboard-python
 
 ##############################################################################
 # Stage 1: Setup — download and install IB Gateway
@@ -313,6 +321,8 @@ RUN mkdir -p target/classes \
 FROM ubuntu:${UBUNTU_IMAGE_TAG}
 
 ARG IB_GATEWAY_VERSION
+ARG DASHBOARD_PYTHON_VERSION
+ARG PYTHON_DEPENDENCY_REFRESH
 ARG USER_ID=1000
 ARG USER_GID=1000
 ARG DEBIAN_FRONTEND=noninteractive
@@ -334,6 +344,7 @@ ENV HOME=/home/ibgateway \
 # Copy Gateway + JRE from setup stage (same as gnzsnz)
 COPY --from=setup /usr/local/ /usr/local/
 COPY --from=setup /root/Jts /home/ibgateway/Jts
+COPY --from=dashboard-python /usr/local/ /usr/local/
 
 # Install runtime packages + Python for dashboard.
 # Official Ubuntu mirror setup (see Stage 1 for bootstrap/signature rationale)
@@ -412,7 +423,7 @@ RUN set -eux; \
         gettext-base socat xvfb x11vnc sshpass openssh-client telnet iputils-ping \
         dbus-x11 at-spi2-core libatk-wrapper-java libatk-wrapper-java-jni python3-pyatspi \
         libgtk-3-0t64 libgdk-pixbuf-2.0-0 \
-        oathtool tesseract-ocr python3 python3-pip python3-venv websockify \
+        oathtool tesseract-ocr python3 python3-venv websockify \
     && apt-get clean && rm -rf /var/lib/apt/lists/* \
     # Remove default ubuntu user if present
     && if id ubuntu 2>/dev/null; then userdel -rf ubuntu; fi \
@@ -444,10 +455,21 @@ RUN set -eux; \
 COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /usr/local/bin/uv
 COPY dashboard/pyproject.toml dashboard/uv.lock /opt/ibctl/dashboard/
 WORKDIR /opt/ibctl/dashboard
-RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
-    uv sync --frozen --no-dev \
-    # uv is build-only — drop it from the final image to keep size down
-    && rm -f /usr/local/bin/uv
+ENV UV_PYTHON_INSTALL_DIR=/opt/ibctl/python
+RUN --mount=type=cache,target=/home/ibgateway/.cache/uv,sharing=locked \
+    echo "Python dependency refresh token: ${PYTHON_DEPENDENCY_REFRESH}" \
+    && test "$(/usr/local/bin/python3 --version | awk '{print $2}')" = "${DASHBOARD_PYTHON_VERSION}" \
+    # Resolve current compatible releases inside the candidate image. The
+    # checked-in lock remains the reproducible floor; the canary, vulnerability
+    # gate, and rollback protect the live service from an incompatible update.
+    && uv lock --upgrade \
+    && uv sync --frozen --no-dev --link-mode=copy --python /usr/local/bin/python3 \
+    # Package installers are build-only. Removing uv and the official Python
+    # image's bundled pip also removes pip's vendored code from the runtime
+    # attack surface; the application venv is already locked and complete.
+    && rm -f /usr/local/bin/uv /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.* \
+    && rm -rf /usr/local/lib/python${DASHBOARD_PYTHON_VERSION%.*}/site-packages/pip \
+        /usr/local/lib/python${DASHBOARD_PYTHON_VERSION%.*}/site-packages/pip-*.dist-info
 WORKDIR /
 
 # Copy ibctl binaries — prefer pre-built, fall back to source
@@ -500,3 +522,4 @@ LABEL org.opencontainers.image.source=https://github.com/Lcstyle/ibctl
 LABEL org.opencontainers.image.description="IBC replacement for automated IB Gateway/TWS login and session management"
 LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.version=${IB_GATEWAY_VERSION}
+LABEL org.opencontainers.image.python.version=${DASHBOARD_PYTHON_VERSION}

@@ -304,6 +304,9 @@ pub struct StateMachine {
     /// Server-enforced earliest time for the next credential submission,
     /// parsed from Gateway's "retry in N seconds" error dialog.
     pub(super) twofa_retry_not_before: Option<Instant>,
+    /// A 2FA rejection was observed without a readable countdown. While true,
+    /// credential submission is blocked until Gateway exposes an explicit wait.
+    pub(super) twofa_retry_waiting_for_screen: bool,
     /// Timestamp when the current state was entered. Used for deadline-based timeouts
     /// instead of internal loops. Reset on every state transition in apply_transition().
     pub(super) state_entered_at: Instant,
@@ -528,6 +531,7 @@ impl StateMachine {
             twofa_seen: false,
             twofa_gone_at: None,
             twofa_retry_not_before: None,
+            twofa_retry_waiting_for_screen: false,
             state_entered_at: Instant::now(),
             popup_last_dismissed: None,
             consecutive_agent_failures: 0,

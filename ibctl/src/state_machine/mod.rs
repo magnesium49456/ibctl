@@ -346,6 +346,7 @@ impl StateMachine {
             self.cold_restart_equivalent_pending = false;
             self.connected_since = Some(Instant::now());
             self.twofa_retry_not_before = None;
+            self.twofa_retry_waiting_for_screen = false;
             self.relogin_attempts = 0;
             self.connected_continuously_since = Some(Instant::now());
             // Counter reset: "any_reach" resets immediately; "stable" defers
@@ -708,17 +709,32 @@ impl StateMachine {
                     "Event: error_dialog '{}' (message={:?}, buttons={:?})",
                     window_title, message, buttons
                 );
-                let combined = format!("{} {}", window_title, message.as_deref().unwrap_or(""));
+                let combined = format!(
+                    "{} {} {}",
+                    window_title,
+                    message.as_deref().unwrap_or(""),
+                    buttons.join(" ")
+                );
                 if crate::time_sync::is_twofa_failure(&combined) {
-                    let server_wait = crate::time_sync::parse_retry_seconds(&combined).unwrap_or(30);
-                    let wait = server_wait.saturating_add(2);
-                    self.twofa_retry_not_before = Some(Instant::now() + std::time::Duration::from_secs(wait));
                     self.handler_registry.reset();
-                    log::warn!(
-                        "twofa.failure_detected server_retry_secs={} enforced_wait_secs={} — verifying authoritative time",
-                        server_wait,
-                        wait,
-                    );
+                    if let Some(server_wait) = crate::time_sync::parse_retry_seconds(&combined) {
+                        let wait = server_wait.saturating_add(2);
+                        self.twofa_retry_not_before = Some(
+                            Instant::now() + std::time::Duration::from_secs(wait)
+                        );
+                        self.twofa_retry_waiting_for_screen = false;
+                        log::warn!(
+                            "twofa.failure_detected server_retry_secs={} enforced_wait_secs={} — verifying authoritative time",
+                            server_wait,
+                            wait,
+                        );
+                    } else {
+                        self.twofa_retry_not_before = None;
+                        self.twofa_retry_waiting_for_screen = true;
+                        log::warn!(
+                            "twofa.failure_detected with no readable countdown — blocking retries until Gateway displays one and verifying authoritative time"
+                        );
+                    }
                     tokio::spawn(async { let _ = crate::time_sync::verify_now("twofa_failure").await; });
                 }
             }
@@ -1337,7 +1353,61 @@ impl StateMachine {
         Ok(State::WaitingForLogin)
     }
 
+    /// Poll Gateway's actual UI after a rejection that did not include a
+    /// countdown in the event. No fallback delay is guessed: authentication
+    /// remains blocked until an explicit server wait is readable on screen.
+    async fn wait_for_observed_twofa_retry(&mut self) -> Result<bool, StateMachineError> {
+        if !self.twofa_retry_waiting_for_screen {
+            return Ok(false);
+        }
+
+        fn collect_strings(value: &serde_json::Value, output: &mut Vec<String>) {
+            match value {
+                serde_json::Value::String(text) => output.push(text.clone()),
+                serde_json::Value::Array(values) => {
+                    for value in values {
+                        collect_strings(value, output);
+                    }
+                }
+                serde_json::Value::Object(values) => {
+                    for value in values.values() {
+                        collect_strings(value, output);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let windows = self.agent_client.list_windows().await?;
+        let mut visible_text = windows.iter().map(|window| window.title.clone()).collect::<Vec<_>>();
+        for window in &windows {
+            if let Ok(components) = self.agent_client.dump_components(window.id).await {
+                collect_strings(&components, &mut visible_text);
+            }
+        }
+        let combined = visible_text.join(" ");
+        if let Some(server_wait) = crate::time_sync::parse_retry_seconds(&combined) {
+            let wait = server_wait.saturating_add(2);
+            self.twofa_retry_not_before = Some(
+                Instant::now() + std::time::Duration::from_secs(wait)
+            );
+            self.twofa_retry_waiting_for_screen = false;
+            log::warn!(
+                "Gateway screen countdown observed: server_retry_secs={} enforced_wait_secs={}",
+                server_wait,
+                wait,
+            );
+        } else {
+            log::debug!("2FA retry blocked — Gateway has not displayed a readable countdown yet");
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        Ok(true)
+    }
+
     async fn do_authenticate(&mut self) -> Result<State, StateMachineError> {
+        if self.wait_for_observed_twofa_retry().await? {
+            return Ok(State::Authenticating);
+        }
         if let Some(deadline) = self.twofa_retry_not_before {
             if Instant::now() < deadline {
                 let remaining = deadline.saturating_duration_since(Instant::now()).as_secs().saturating_add(1);
@@ -1430,6 +1500,9 @@ impl StateMachine {
     /// State tracked via twofa_seen, twofa_gone_at, twofa_device_selected fields.
     /// Deadline tracked via state_entered_at.
     async fn do_wait_for_2fa(&mut self) -> Result<State, StateMachineError> {
+        if self.wait_for_observed_twofa_retry().await? {
+            return Ok(State::WaitingFor2fa);
+        }
         if let Some(deadline) = self.twofa_retry_not_before {
             if Instant::now() < deadline {
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 """Dump a window's AT-SPI accessibility tree as ibctl-compatible JSON."""
 
 from __future__ import annotations

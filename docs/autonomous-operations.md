@@ -29,10 +29,12 @@ rejection, ibctl samples Cloudflare, Google, and pool.ntp.org. A bounded median
 offset is applied only to TOTP generation. It does not grant the container
 permission to change the host clock.
 
-If Gateway says `try again in 43 seconds` (or uses minutes), ibctl parses that
-countdown, adds a two-second safety margin, and will not submit another login
-before the deadline. It also avoids generating a code at the unsafe edge of a
-30-second TOTP window.
+If Gateway says `try again in 43 seconds`, uses minutes, or displays an `mm:ss`
+countdown, ibctl reads that UI text, adds a two-second safety margin, and will
+not submit another login before the deadline. If a rejection is detected but
+the countdown is not yet readable, submission remains blocked while ibctl
+polls the screen; there is deliberately no guessed fallback delay. It also
+avoids generating a code at the unsafe edge of a 30-second TOTP window.
 
 For Docker Desktop on Windows, install the companion host task. An elevated
 PowerShell prompt permits Windows' force-sync actions; a standard-user install
@@ -52,6 +54,10 @@ container volume.
 
 `ibctl-settings` persists `/home/ibgateway/settings`, while the image-owned
 `/home/ibgateway/Jts` continues to carry the latest Gateway installation.
+Before each launch the entrypoint reasserts the configured local API port in
+the persisted `jts.ini` (`4001` live or `4002` paper), because Gateway updates
+can otherwise rewrite it to `4000` and strand the readiness probe on the wrong
+port.
 `ibctl-persist` stores logs, recovery markers, and encrypted settings backups. A backup is created only
 after the configured stable-Connected dwell. On a full-container recovery,
 the newest known-good snapshot is restored. Logs default to 45 days, settings
@@ -69,6 +75,17 @@ deployment script retains the current image as `ibctl:last-known-good`, builds
 with `--pull`, deploys the candidate, and promotes it only after the status API
 is continuously ready for 90 seconds. Otherwise it automatically restores the
 last-known-good image.
+
+The same weekly candidate build stays on the Ubuntu 26.04 LTS series, runs the
+full Ubuntu package upgrade, uses CPython 3.14.7 for the dashboard, and refreshes
+all compatible locked Python dependencies. Package installers are removed from
+the runtime image. Before any live restart, Trivy blocks the candidate on known,
+fixable Ubuntu or application-package finding at any severity. Its vulnerability
+database is cached in the `ibctl-trivy-cache` Docker volume, so downloading and
+scanning occur while the current Gateway is still online. A full inventory,
+including findings inside IBKR's proprietary Gateway JRE/JARs, is saved to
+`%LOCALAPPDATA%\ibctl-security\candidate-latest.json`; vendor components are
+updated only by installing a newer Gateway, not by replacing individual JARs.
 
 Run it manually:
 

@@ -69,20 +69,49 @@ pub fn is_twofa_failure(text: &str) -> bool {
 /// Extract Gateway's server-enforced login delay from text such as
 /// "Please try again in 43 seconds" or "Retry after 2 minutes".
 pub fn parse_retry_seconds(text: &str) -> Option<u64> {
-    let normalized = text
-        .to_ascii_lowercase()
-        .replace(|ch: char| !ch.is_ascii_alphanumeric(), " ");
-    let words = normalized.split_whitespace().collect::<Vec<_>>();
-    for (index, word) in words.iter().enumerate() {
-        let Ok(value) = word.parse::<u64>() else {
+    let lower = text.to_ascii_lowercase();
+    // Parse only the sentence containing retry language. This prevents an
+    // unrelated duration elsewhere in a multi-label dialog from being used.
+    for segment in lower.split(['.', '!', '\n', ';']) {
+        let retry_context = ["retry", "try again", "wait", "attempt again", "until retry"]
+            .iter()
+            .any(|needle| segment.contains(needle));
+        if !retry_context {
             continue;
-        };
-        let unit = words.get(index + 1).copied().unwrap_or("");
-        if unit.starts_with("sec") {
-            return Some(value.min(3600));
         }
-        if unit.starts_with("min") {
-            return Some(value.saturating_mul(60).min(3600));
+
+        // Some Gateway builds render the countdown as mm:ss.
+        for token in segment.split_whitespace() {
+            let trimmed = token.trim_matches(|ch: char| !ch.is_ascii_digit() && ch != ':');
+            if let Some((minutes, seconds)) = trimmed.split_once(':') {
+                if let (Ok(minutes), Ok(seconds)) = (minutes.parse::<u64>(), seconds.parse::<u64>()) {
+                    if seconds < 60 {
+                        return Some(minutes.saturating_mul(60).saturating_add(seconds).min(3600));
+                    }
+                }
+            }
+        }
+
+        let normalized = segment.replace(|ch: char| !ch.is_ascii_alphanumeric(), " ");
+        let words = normalized.split_whitespace().collect::<Vec<_>>();
+        let mut total = 0_u64;
+        let mut found = false;
+        for (index, word) in words.iter().enumerate() {
+            let Ok(value) = word.parse::<u64>() else {
+                continue;
+            };
+            let unit = words.get(index + 1).copied().unwrap_or("");
+            if unit.starts_with("sec") {
+                total = total.saturating_add(value);
+                found = true;
+            }
+            if unit.starts_with("min") {
+                total = total.saturating_add(value.saturating_mul(60));
+                found = true;
+            }
+        }
+        if found {
+            return Some(total.min(3600));
         }
     }
     None
@@ -257,6 +286,13 @@ mod tests {
             Some(43)
         );
         assert_eq!(parse_retry_seconds("Retry after 2 minutes"), Some(120));
+        assert_eq!(parse_retry_seconds("Try again in 1 minute 23 seconds"), Some(83));
+        assert_eq!(parse_retry_seconds("Retry available in 01:17"), Some(77));
+        assert_eq!(
+            parse_retry_seconds("Try again in 43 seconds. Session expires in 5 minutes."),
+            Some(43)
+        );
+        assert_eq!(parse_retry_seconds("Session duration 2 minutes"), None);
         assert_eq!(parse_retry_seconds("Login failed"), None);
     }
 

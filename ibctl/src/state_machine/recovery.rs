@@ -126,6 +126,9 @@ impl RecoveryPhase {
 /// re-opens the Bug 4 class.
 #[derive(Debug, Clone)]
 pub struct RecoveryConfig {
+    /// Autonomous mode never enters or remains in GivenUp. It retains the
+    /// circuit-breaker backoff cadence but keeps trying indefinitely.
+    pub autonomous: bool,
     /// Aggressive → Backoff threshold. Default 3600 (1h).
     pub aggressive_phase_max_secs: u64,
     /// Backoff → GivenUp threshold. Default 10800 (3h).
@@ -168,6 +171,7 @@ impl RecoveryConfig {
 impl Default for RecoveryConfig {
     fn default() -> Self {
         Self {
+            autonomous: false,
             aggressive_phase_max_secs: Self::DEFAULT_AGGRESSIVE_MAX_SECS,
             backoff_phase_max_secs: Self::DEFAULT_BACKOFF_MAX_SECS,
             backoff_interval_secs: Self::DEFAULT_BACKOFF_INTERVAL_SECS,
@@ -254,6 +258,9 @@ pub enum NextAction {
     /// User tapped the resume link. Wrapper clears `last_full_success_at`
     /// (per plan decision), transitions to Aggressive, resets timer.
     ResumeToAggressive,
+    /// Autonomous policy found a persisted GivenUp marker and clears it
+    /// without requiring a human-supplied token.
+    ResumeAutomatically,
     /// A scheduled cold restart is imminent. Wrapper skips this tick's
     /// escalation and lets the cold-restart path run — cold restart
     /// preserves `phase_entered_at` unless the post-restart Connected
@@ -278,6 +285,10 @@ pub fn compute_next_action(snap: &RecoverySnapshot, cfg: &RecoveryConfig) -> Nex
     // constructing cfg; the pure function just observes `disabled`.
     if cfg.disabled {
         return NextAction::Sleep(Duration::ZERO);
+    }
+
+    if cfg.autonomous && snap.phase == RecoveryPhase::GivenUp {
+        return NextAction::ResumeAutomatically;
     }
 
     // Gate 1: cold-restart precedence. A scheduled cold restart is a stronger
@@ -306,7 +317,15 @@ pub fn compute_next_action(snap: &RecoverySnapshot, cfg: &RecoveryConfig) -> Nex
     if snap.phase != RecoveryPhase::GivenUp
         && snap.failure_fingerprint_streak >= cfg.fingerprint_streak_forcing_hitl
     {
-        return NextAction::ForceHitlEarly;
+        return if cfg.autonomous {
+            if snap.phase == RecoveryPhase::Aggressive {
+                NextAction::EscalateToBackoff
+            } else {
+                NextAction::Sleep(Duration::from_secs(cfg.backoff_interval_secs))
+            }
+        } else {
+            NextAction::ForceHitlEarly
+        };
     }
 
     match snap.phase {
@@ -328,7 +347,7 @@ pub fn compute_next_action(snap: &RecoverySnapshot, cfg: &RecoveryConfig) -> Nex
             // is driven by the wrapper when it observes the Connected dwell,
             // not by this pure function. Here we only decide escalate vs
             // continue-sleeping.
-            if snap.phase_elapsed_secs >= cfg.backoff_phase_max_secs {
+            if !cfg.autonomous && snap.phase_elapsed_secs >= cfg.backoff_phase_max_secs {
                 return NextAction::FireGiveUpAlert;
             }
             // Sleep until the next backoff_interval_secs boundary.
@@ -352,6 +371,19 @@ mod tests {
 
     fn cfg_default() -> RecoveryConfig {
         RecoveryConfig::default()
+    }
+
+    #[test]
+    fn autonomous_mode_never_parks_or_gives_up() {
+        let mut cfg = cfg_default();
+        cfg.autonomous = true;
+        let backoff = snap(RecoveryPhase::BackoffEvery15Min, 24 * 3600);
+        assert!(matches!(compute_next_action(&backoff, &cfg), NextAction::Sleep(_)));
+        let given_up = snap(RecoveryPhase::GivenUp, 3600);
+        assert_eq!(compute_next_action(&given_up, &cfg), NextAction::ResumeAutomatically);
+        let mut repeated = snap(RecoveryPhase::Aggressive, 60);
+        repeated.failure_fingerprint_streak = cfg.fingerprint_streak_forcing_hitl;
+        assert_eq!(compute_next_action(&repeated, &cfg), NextAction::EscalateToBackoff);
     }
 
     fn snap(phase: RecoveryPhase, elapsed: u64) -> RecoverySnapshot {
@@ -2406,6 +2438,17 @@ impl RecoveryCoordinator {
             // asserts mtime doesn't move for Sleep.
             NextAction::Sleep(_) => Ok(AppliedAction::NoChange),
             NextAction::DeferToColdRestart => Ok(AppliedAction::Deferred),
+
+            NextAction::ResumeAutomatically => {
+                let prev = self.phase.as_str();
+                log::warn!("recovery.autonomous_resume prior_phase={prev}");
+                self.enter_phase(RecoveryPhase::Aggressive, now_wall, now_mono);
+                self.giveup_alert_sent_at = None;
+                self.resumed_by_token_hash = None;
+                self.blocked_awaiting_resume = false;
+                self.persist()?;
+                Ok(AppliedAction::ResumedToAggressive)
+            }
 
             NextAction::EscalateToBackoff => {
                 log::warn!(

@@ -15,6 +15,7 @@
 
 ARG IB_GATEWAY_VERSION=latest
 ARG IB_GATEWAY_CHANNEL=latest
+ARG IB_GATEWAY_REFRESH=0
 ARG IBCTL_VERSION=""
 # Docker's ubuntu:latest tag tracks the latest LTS release; use
 # --build-arg UBUNTU_IMAGE_TAG=24.04 to pin a specific LTS for repeatability.
@@ -31,6 +32,7 @@ FROM ubuntu:${UBUNTU_IMAGE_TAG} AS setup
 
 ARG IB_GATEWAY_VERSION
 ARG IB_GATEWAY_CHANNEL
+ARG IB_GATEWAY_REFRESH
 ARG TARGETARCH
 ARG DEBIAN_FRONTEND=noninteractive
 ARG IB_GATEWAY_REPO="https://github.com/gnzsnz/ib-gateway-docker"
@@ -134,11 +136,14 @@ RUN set -eux; \
         tar -xzf ${ZULU_FILE} -C /usr/local/ && \
         ln -s /usr/local/${ZULU_NAME} /usr/local/zulu17; \
     fi \
+    # The refresh token is supplied by the canary deploy so a cached Docker
+    # layer cannot prevent re-resolving the moving `latest` channel.
+    && echo "Gateway resolution refresh token: ${IB_GATEWAY_REFRESH}" \
     # Resolve the current upstream Gateway version for the selected channel.
     # Passing --build-arg IB_GATEWAY_VERSION=10.xx.yz still pins an exact build.
     && ib_gateway_version="${IB_GATEWAY_VERSION}" \
     && if [ "${ib_gateway_version}" = "latest" ] || [ "${ib_gateway_version}" = "auto" ]; then \
-        ib_gateway_version="$(curl -fsSL "${IB_GATEWAY_API_REPO}/releases?per_page=100" \
+        ib_gateway_version="$(curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 "${IB_GATEWAY_API_REPO}/releases?per_page=100" \
             | sed -n "s/.*\"tag_name\": \"ibgateway-${IB_GATEWAY_CHANNEL}@\\([^\"]*\\)\".*/\\1/p" \
             | head -n 1)"; \
         if [ -z "${ib_gateway_version}" ]; then \
@@ -150,8 +155,8 @@ RUN set -eux; \
     && ib_gateway_file="ibgateway-${ib_gateway_version}-standalone-linux-x64.sh" \
     && ib_gateway_url="${IB_GATEWAY_REPO}/releases/download/ibgateway-${IB_GATEWAY_CHANNEL}%40${ib_gateway_version}/${ib_gateway_file}" \
     # Download and verify IB Gateway installer
-    && curl -fsSLO "${ib_gateway_url}" \
-    && curl -fsSLO "${ib_gateway_url}.sha256" \
+    && curl -fsSLO --retry 5 --retry-all-errors --retry-delay 2 "${ib_gateway_url}" \
+    && curl -fsSLO --retry 5 --retry-all-errors --retry-delay 2 "${ib_gateway_url}.sha256" \
     && sha256sum --check "./${ib_gateway_file}.sha256" \
     && chmod a+x "./${ib_gateway_file}" \
     # Install IB Gateway
@@ -464,18 +469,21 @@ COPY dashboard/app /opt/ibctl/dashboard/app
 
 # Copy ibctl config and entrypoint
 COPY docker/entrypoint.sh /opt/ibctl/entrypoint.sh
+COPY docker/healthcheck.sh /opt/ibctl/healthcheck.sh
+COPY docker/resilience-maintenance.sh /opt/ibctl/resilience-maintenance.sh
 COPY docker/atspi_dump.py /opt/ibctl/atspi_dump.py
 COPY docker/ibctl.toml /opt/ibctl/ibctl.toml
-RUN chmod +x /opt/ibctl/ibctl /opt/ibctl/entrypoint.sh /opt/ibctl/atspi_dump.py \
+RUN chmod +x /opt/ibctl/ibctl /opt/ibctl/entrypoint.sh /opt/ibctl/healthcheck.sh \
+        /opt/ibctl/resilience-maintenance.sh /opt/ibctl/atspi_dump.py \
     && chown -R ibgateway:ibgateway /home/ibgateway /opt/ibctl /run/ibctl
 
 USER ${USER_ID}:${USER_GID}
 WORKDIR /home/ibgateway
 
-# No Docker HEALTHCHECK — ibctl manages its own lifecycle, liveness checks,
-# and notifications. A Docker healthcheck with restart: unless-stopped is
-# destructive: it kills the container during legitimate 2FA waits, destroying
-# authenticated sessions and forcing re-authentication.
+# Health is diagnostic. Docker does not restart an unhealthy container; ibctl's
+# internal watchdog deliberately exits PID 1 only after bounded recovery fails.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
+    CMD ["/opt/ibctl/healthcheck.sh"]
 
 ENTRYPOINT ["/opt/ibctl/entrypoint.sh"]
 

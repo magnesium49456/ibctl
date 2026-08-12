@@ -345,6 +345,7 @@ impl StateMachine {
             // loop doesn't double-write or carry stale truth.
             self.cold_restart_equivalent_pending = false;
             self.connected_since = Some(Instant::now());
+            self.twofa_retry_not_before = None;
             self.relogin_attempts = 0;
             self.connected_continuously_since = Some(Instant::now());
             // Counter reset: "any_reach" resets immediately; "stable" defers
@@ -376,6 +377,7 @@ impl StateMachine {
             // to call these five methods.
             self.connected_since = None;
             self.connected_continuously_since = None;
+            self.settings_good_marked = false;
             self.stop_api_port_probe();
             self.revocation.clear_all();
             self.connection_event_disconnected = false;
@@ -706,6 +708,19 @@ impl StateMachine {
                     "Event: error_dialog '{}' (message={:?}, buttons={:?})",
                     window_title, message, buttons
                 );
+                let combined = format!("{} {}", window_title, message.as_deref().unwrap_or(""));
+                if crate::time_sync::is_twofa_failure(&combined) {
+                    let server_wait = crate::time_sync::parse_retry_seconds(&combined).unwrap_or(30);
+                    let wait = server_wait.saturating_add(2);
+                    self.twofa_retry_not_before = Some(Instant::now() + std::time::Duration::from_secs(wait));
+                    self.handler_registry.reset();
+                    log::warn!(
+                        "twofa.failure_detected server_retry_secs={} enforced_wait_secs={} — verifying authoritative time",
+                        server_wait,
+                        wait,
+                    );
+                    tokio::spawn(async { let _ = crate::time_sync::verify_now("twofa_failure").await; });
+                }
             }
             AgentEvent::ConnectionStatusChanged { ref from, ref to, .. } => {
                 log::warn!("Event: connection_status_changed {} -> {}", from, to);
@@ -1058,16 +1073,17 @@ impl StateMachine {
             let mut consecutive_failures: u32 = 0;
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
-                let connect_result = tokio::time::timeout(
-                    std::time::Duration::from_millis(200),
-                    tokio::net::TcpStream::connect(&addr),
+                let ok = crate::api_probe::probe(
+                    "127.0.0.1",
+                    api_port,
+                    std::time::Duration::from_secs(2),
                 )
-                .await;
-                let ok = matches!(connect_result, Ok(Ok(_)));
+                .await
+                .is_ok();
                 if ok {
                     if consecutive_failures > 0 {
                         log::debug!(
-                            "API port probe recovered after {} failures (addr={})",
+                            "IB API handshake recovered after {} failures (addr={})",
                             consecutive_failures, addr
                         );
                     }
@@ -1075,12 +1091,12 @@ impl StateMachine {
                 } else {
                     consecutive_failures = consecutive_failures.saturating_add(1);
                     log::debug!(
-                        "API port probe failed ({}/{}): addr={}",
+                        "IB API handshake probe failed ({}/{}): addr={}",
                         consecutive_failures, threshold, addr
                     );
                     if consecutive_failures >= threshold {
                         log::warn!(
-                            "API port probe: {} consecutive failures on {} — signaling revocation",
+                            "IB API handshake: {} consecutive failures on {} — signaling revocation",
                             consecutive_failures, addr
                         );
                         failed_flag.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -1322,6 +1338,16 @@ impl StateMachine {
     }
 
     async fn do_authenticate(&mut self) -> Result<State, StateMachineError> {
+        if let Some(deadline) = self.twofa_retry_not_before {
+            if Instant::now() < deadline {
+                let remaining = deadline.saturating_duration_since(Instant::now()).as_secs().saturating_add(1);
+                log::info!("Gateway login backoff active — waiting {}s before retry", remaining);
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                return Ok(State::Authenticating);
+            }
+            log::info!("Gateway login backoff expired — retrying with verified time offset_ms={}", crate::time_sync::verified_offset_ms());
+            self.twofa_retry_not_before = None;
+        }
         log::info!("Authenticating with IB Gateway");
 
         // Check for blocking dialogs (re-login, 2FA) before attempting login
@@ -1404,6 +1430,13 @@ impl StateMachine {
     /// State tracked via twofa_seen, twofa_gone_at, twofa_device_selected fields.
     /// Deadline tracked via state_entered_at.
     async fn do_wait_for_2fa(&mut self) -> Result<State, StateMachineError> {
+        if let Some(deadline) = self.twofa_retry_not_before {
+            if Instant::now() < deadline {
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                return Ok(State::WaitingFor2fa);
+            }
+            self.twofa_retry_not_before = None;
+        }
         if !self.supervisor.is_running() {
             return Ok(State::Error("JVM exited during 2FA wait".into()));
         }
@@ -1747,6 +1780,7 @@ impl StateMachine {
     /// Single-step: check observation cache / HTTP for API readiness, return.
     /// Deadline tracked via state_entered_at.
     async fn do_wait_for_api_ready(&mut self) -> Result<State, StateMachineError> {
+        let mut api_server_explicitly_disconnected = false;
         if !self.supervisor.is_running() {
             log::warn!("JVM exited while waiting for API readiness");
             return Ok(State::Restarting);
@@ -1807,17 +1841,29 @@ impl StateMachine {
                             log::info!("Gateway API Server: connected (confirmed via label inspection)");
                             return Ok(State::ConfiguringApi);
                         }
+                        api_server_explicitly_disconnected = components_indicate_disconnected(&components);
                     }
                 }
             }
         }
 
-        // Deadline — fail-CLOSED: if we never saw "connected" after 120s, the
-        // Gateway is in an unknown state. Proceeding to ConfiguringApi pretending
+        // Deadline — fail-CLOSED when we never see "connected". Proceeding to ConfiguringApi pretending
         // the session is valid produces a false-Connected state where the dashboard
-        // lies to the user. Restart the JVM for a clean slate instead.
-        if self.state_entered_at.elapsed() > std::time::Duration::from_secs(120) {
-            log::warn!("Gateway API not ready after 120s — restarting JVM (fail-closed)");
+        // lies to the user. An explicit API Server=disconnected label is different:
+        // authentication succeeded and Gateway may reconnect its broker session
+        // without another login, so preserve it longer instead of hammering 2FA.
+        let timeout_secs = if api_server_explicitly_disconnected {
+            std::env::var("IBCTL_API_DISCONNECTED_GRACE_SECS")
+                .ok().and_then(|value| value.parse::<u64>().ok()).unwrap_or(600)
+        } else {
+            120
+        };
+        if self.state_entered_at.elapsed() > std::time::Duration::from_secs(timeout_secs) {
+            log::warn!(
+                "Gateway API not ready after {}s (explicitly_disconnected={}) — restarting JVM (fail-closed)",
+                timeout_secs,
+                api_server_explicitly_disconnected,
+            );
             self.abort_client_id_task();
             return Ok(State::Restarting);
         }
@@ -2274,6 +2320,28 @@ impl StateMachine {
             }
         }
 
+        if self.connected_continuously_since.is_some_and(|since| {
+            since.elapsed() >= std::time::Duration::from_secs(self.config.timing.recovery.min_success_dwell_secs)
+        })
+        {
+            if self.consecutive_jvm_restarts > 0 {
+                log::info!(
+                    "Connected stable — resetting JVM recovery counter (was {})",
+                    self.consecutive_jvm_restarts,
+                );
+                self.consecutive_jvm_restarts = 0;
+            }
+            if !self.settings_good_marked {
+                let marker = std::env::var("IBCTL_SETTINGS_GOOD_MARKER")
+                    .unwrap_or_else(|_| "/opt/ibctl/persist/maintenance/settings-good".to_string());
+                if let Some(parent) = std::path::Path::new(&marker).parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let _ = std::fs::write(marker, jiff::Zoned::now().to_string());
+                self.settings_good_marked = true;
+            }
+        }
+
         // Signal/command/cold-restart/event handling is done by the outer
         // tokio::select! in run(). Events provide instant dialog detection.
         // This sleep is now just a reconciliation tick — events handle the fast path.
@@ -2460,8 +2528,14 @@ impl StateMachine {
     /// Observed: a full warm-restart cycle takes ~20s without the delay vs
     /// ~110s with it.
     async fn do_restart(&mut self) -> Result<State, StateMachineError> {
-        let delay = self.config.timing.restart_delay_secs;
+        let base_delay = self.config.timing.restart_delay_secs;
         let is_warm_restart = self.warm_restart_pending.is_some();
+        let exponent = self.consecutive_jvm_restarts.min(4);
+        let delay = if is_warm_restart {
+            0
+        } else {
+            base_delay.saturating_mul(1_u64 << exponent).min(900)
+        };
 
         // Phase 1: delay before restart (dashboard stays responsive via outer loop)
         // Skipped for warm restart — planned Gateway exit, no backend backoff needed.
@@ -2473,6 +2547,25 @@ impl StateMachine {
         // Phase 2: kill and restart
         if is_warm_restart {
             log::info!("Warm restart: skipping restart_delay ({}s) — Gateway already exited cleanly", delay);
+        }
+        if !is_warm_restart {
+            self.consecutive_jvm_restarts = self.consecutive_jvm_restarts.saturating_add(1);
+            let exit_threshold = std::env::var("IBCTL_CONTAINER_EXIT_AFTER_RESTARTS")
+                .ok().and_then(|value| value.parse::<u32>().ok()).unwrap_or(8);
+            if exit_threshold > 0 && self.consecutive_jvm_restarts >= exit_threshold {
+                log::error!(
+                    "recovery.container_recycle consecutive_jvm_restarts={} threshold={} — exiting PID 1 for Docker restart",
+                    self.consecutive_jvm_restarts,
+                    exit_threshold,
+                );
+                let marker = std::env::var("IBCTL_CONTAINER_RECYCLE_MARKER")
+                    .unwrap_or_else(|_| "/opt/ibctl/persist/maintenance/container-recycle".to_string());
+                if let Some(parent) = std::path::Path::new(&marker).parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let _ = std::fs::write(marker, format!("{}\n", self.consecutive_jvm_restarts));
+                return Ok(State::Shutdown);
+            }
         }
         log::info!("Restarting IB Gateway");
 
@@ -3860,8 +3953,8 @@ login_dialog_timeout_secs = 0
         };
 
         let mut sm = make_test_state_machine(mock);
-        // Simulate 121s having already elapsed — past the 120s deadline.
-        sm.state_entered_at = Instant::now() - Duration::from_secs(121);
+        // Explicitly disconnected sessions get a longer reconnect grace period.
+        sm.state_entered_at = Instant::now() - Duration::from_secs(601);
         sm.state = State::WaitingForApiReady;
 
         // Act
@@ -3870,7 +3963,7 @@ login_dialog_timeout_secs = 0
         // Assert: MUST fail-closed to Restarting, not fabricate progress to ConfiguringApi.
         assert_eq!(
             result, State::Restarting,
-            "fail-closed: after 120s without 'connected' label, must restart JVM not proceed to ConfiguringApi"
+            "fail-closed: after the disconnected grace period, restart JVM rather than fabricate progress"
         );
     }
 
@@ -4143,7 +4236,7 @@ login_dialog_timeout_secs = 0
     /// after an arbitrary amount of elapsed time.
     #[tokio::test]
     async fn test_timeout_never_promotes_to_connected() {
-        // Arrange: Gateway sitting at login form with "disconnected" label —
+        // Arrange: authenticated Gateway with an explicitly disconnected API Server —
         // the exact incident scenario where the old code fabricated progress
         // to ConfiguringApi (and then Connected) after a 120s timeout.
         let mock = MockAgent {
@@ -4158,8 +4251,8 @@ login_dialog_timeout_secs = 0
         };
 
         let mut sm = make_test_state_machine(mock);
-        // Wind the clock back so the 120s timeout has "already elapsed".
-        sm.state_entered_at = Instant::now() - Duration::from_secs(300);
+        // Wind the clock back past the extended disconnected-session grace.
+        sm.state_entered_at = Instant::now() - Duration::from_secs(601);
         sm.state = State::WaitingForApiReady;
 
         let result = sm.do_wait_for_api_ready().await.expect("handler must not error");

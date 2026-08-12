@@ -292,6 +292,7 @@ def render_docker_toml(
     # [timing.recovery]
     rec = tomlkit.table()
     _emit(rec, "timing.recovery", "RecoveryTimingConfig", "enabled", "enabled", rt.timing.recovery.enabled, descriptions_out)
+    _emit(rec, "timing.recovery", "RecoveryTimingConfig", "autonomous", "autonomous", rt.timing.recovery.autonomous, descriptions_out)
     _emit(rec, "timing.recovery", "RecoveryTimingConfig", "aggressivePhaseMaxSecs", "aggressive_phase_max_secs", int(rt.timing.recovery.aggressivePhaseMaxSecs), descriptions_out)
     _emit(rec, "timing.recovery", "RecoveryTimingConfig", "backoffPhaseMaxSecs", "backoff_phase_max_secs", int(rt.timing.recovery.backoffPhaseMaxSecs), descriptions_out)
     _emit(rec, "timing.recovery", "RecoveryTimingConfig", "backoffIntervalSecs", "backoff_interval_secs", int(rt.timing.recovery.backoffIntervalSecs), descriptions_out)
@@ -456,6 +457,7 @@ def render_example_toml(
     # [timing.recovery]
     ex_rec = tomlkit.table()
     _emit(ex_rec, "timing.recovery", "RecoveryTimingConfig", "enabled", "enabled", rt.timing.recovery.enabled, descriptions_out)
+    _emit(ex_rec, "timing.recovery", "RecoveryTimingConfig", "autonomous", "autonomous", rt.timing.recovery.autonomous, descriptions_out)
     _emit(ex_rec, "timing.recovery", "RecoveryTimingConfig", "aggressivePhaseMaxSecs", "aggressive_phase_max_secs", int(rt.timing.recovery.aggressivePhaseMaxSecs), descriptions_out)
     _emit(ex_rec, "timing.recovery", "RecoveryTimingConfig", "backoffPhaseMaxSecs", "backoff_phase_max_secs", int(rt.timing.recovery.backoffPhaseMaxSecs), descriptions_out)
     _emit(ex_rec, "timing.recovery", "RecoveryTimingConfig", "backoffIntervalSecs", "backoff_interval_secs", int(rt.timing.recovery.backoffIntervalSecs), descriptions_out)

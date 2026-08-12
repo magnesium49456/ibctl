@@ -7,7 +7,6 @@
 
 use crate::config::TotpProvider;
 use crate::types::TotpCode;
-use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -26,6 +25,9 @@ pub enum TotpError {
 pub trait TotpCodeGenerator: Send + Sync {
     /// Generate a 6-digit TOTP code from a base32-encoded secret.
     fn generate(&self, secret: &str) -> Result<TotpCode, TotpError>;
+
+    /// Generate for an explicitly verified Unix timestamp.
+    fn generate_at(&self, secret: &str, timestamp: u64) -> Result<TotpCode, TotpError>;
 }
 
 /// TOTP provider that shells out to the `oathtool` command-line utility.
@@ -36,11 +38,17 @@ pub struct OathtoolProvider;
 
 impl TotpCodeGenerator for OathtoolProvider {
     fn generate(&self, secret: &str) -> Result<TotpCode, TotpError> {
+        let timestamp = crate::time_sync::corrected_unix_seconds()
+            .map_err(|_| TotpError::ClockBeforeUnixEpoch)?;
+        self.generate_at(secret, timestamp)
+    }
+
+    fn generate_at(&self, secret: &str, timestamp: u64) -> Result<TotpCode, TotpError> {
         use std::io::Write;
         use std::process::{Command, Stdio};
 
         let mut child = Command::new("oathtool")
-            .args(["--totp", "--base32", "-"])
+            .args(["--totp", "--base32", &format!("--now=@{timestamp}"), "-"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -70,14 +78,28 @@ pub struct BuiltinProvider;
 
 impl TotpCodeGenerator for BuiltinProvider {
     fn generate(&self, secret: &str) -> Result<TotpCode, TotpError> {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|_| TotpError::ClockBeforeUnixEpoch)?
-            .as_secs();
+        let timestamp = crate::time_sync::corrected_unix_seconds()
+            .map_err(|_| TotpError::ClockBeforeUnixEpoch)?;
 
+        self.generate_at(secret, timestamp)
+    }
+
+    fn generate_at(&self, secret: &str, timestamp: u64) -> Result<TotpCode, TotpError> {
         let code = generate_totp_at(secret, timestamp, 30, 6)?;
         log::debug!("Generated built-in TOTP code (length={})", code.len());
         Ok(TotpCode::new(code))
+    }
+}
+
+/// Wait out the dangerous edge of a 30-second TOTP window. Codes generated
+/// in the final two seconds are likely to expire while the UI is typing them.
+pub async fn wait_for_safe_window() {
+    let Ok(now) = crate::time_sync::corrected_unix_seconds() else { return; };
+    let position = now % 30;
+    let wait = if position >= 27 { 32 - position } else if position < 2 { 2 - position } else { 0 };
+    if wait > 0 {
+        log::info!("TOTP boundary guard: waiting {}s before code generation", wait);
+        tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
     }
 }
 
@@ -322,5 +344,13 @@ mod tests {
             .into_inner();
         assert_eq!(code.len(), 6);
         assert!(code.chars().all(|ch| ch.is_ascii_digit()));
+    }
+
+    #[test]
+    fn explicit_timestamp_is_deterministic() {
+        let provider = BuiltinProvider;
+        let first = provider.generate_at("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", 59).unwrap().into_inner();
+        let second = provider.generate_at("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", 59).unwrap().into_inner();
+        assert_eq!(first, second);
     }
 }

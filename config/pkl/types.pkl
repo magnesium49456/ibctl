@@ -538,6 +538,11 @@ class RecoveryTimingConfig {
   /// Default true.
   enabled: Boolean = true
 
+  /// Never stop at GivenUp. Continue bounded backoff retries forever and
+  /// automatically clear legacy GivenUp markers on boot.
+  /// @env IBCTL_RECOVERY_AUTONOMOUS
+  autonomous: Boolean = false
+
   /// Aggressive → Backoff threshold (seconds). Default 3600 (1h).
   /// @env IBCTL_RECOVERY_AGGRESSIVE_MAX_SECS
   aggressivePhaseMaxSecs: UInt = 3600

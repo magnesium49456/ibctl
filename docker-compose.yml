@@ -12,6 +12,14 @@ services:
     container_name: ibctl-gateway
     restart: unless-stopped
     oom_score_adj: -1000
+    shm_size: 256m
+    pids_limit: 512
+    mem_limit: 2g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     environment:
       # --- Display ---
       DISPLAY: ":1"
@@ -27,26 +35,19 @@ services:
 
       # --- 2FA ---
       TWOFACTOR_CODE: ${TWOFACTOR_CODE:-}
-      TOTP_PROVIDER: ${TOTP_PROVIDER:-builtin}
+      TOTP_PROVIDER: ${TOTP_PROVIDER:-oathtool}
       TWOFA_DEVICE: ${TWOFA_DEVICE:-}      # device name for 2FA selection dialog
       TWOFA_TIMEOUT_ACTION: ${TWOFA_TIMEOUT_ACTION:-restart}
       TWOFA_EXIT_INTERVAL: ${TWOFA_EXIT_INTERVAL:-120}
       RELOGIN_AFTER_TWOFA_TIMEOUT: ${RELOGIN_AFTER_TWOFA_TIMEOUT:-yes}
-      IBCTL_OCR_VERIFICATION: ${IBCTL_OCR_VERIFICATION:-auto}
-      IBCTL_OCR_VERIFICATION_STRICT: ${IBCTL_OCR_VERIFICATION_STRICT:-false}
-      IBCTL_ATSPI_FALLBACK: ${IBCTL_ATSPI_FALLBACK:-auto}
 
       # --- API Configuration ---
       TWS_ACCEPT_INCOMING: ${TWS_ACCEPT_INCOMING:-accept}
-      TWS_TRUSTED_IPS: ${TWS_TRUSTED_IPS:-127.0.0.1}
       TWS_MASTER_CLIENT_ID: ${TWS_MASTER_CLIENT_ID:-}
       READ_ONLY_API: ${READ_ONLY_API:-no}
       BYPASS_WARNING: ${BYPASS_WARNING:-yes}
       ALLOW_BLIND_TRADING: ${ALLOW_BLIND_TRADING:-no}
       TWS_API_INSTRUMENT_TIMEZONE: ${TWS_API_INSTRUMENT_TIMEZONE:-UTC format}
-      DISMISS_PASSWORD_EXPIRY_WARNING: ${DISMISS_PASSWORD_EXPIRY_WARNING:-}
-      ACCEPT_BID_ASK_LAST_SIZE_DISPLAY_UPDATE_NOTIFICATION: ${ACCEPT_BID_ASK_LAST_SIZE_DISPLAY_UPDATE_NOTIFICATION:-ignore}
-      CONFIRM_CRYPTO_CURRENCY_ORDERS: ${CONFIRM_CRYPTO_CURRENCY_ORDERS:-manual}
 
       # --- Scheduling ---
       # NOTE: IB Gateway ignores TIME_ZONE and uses UTC internally.
@@ -54,15 +55,11 @@ services:
       AUTO_RESTART_TIME: ${AUTO_RESTART_TIME:-09:05 PM}
       TWS_COLD_RESTART: ${TWS_COLD_RESTART:-}
       TWS_COLD_RESTART_DAY: ${TWS_COLD_RESTART_DAY:-}
-      SAVE_TWS_SETTINGS_AT: ${SAVE_TWS_SETTINGS_AT:-}
 
       # --- Gateway ---
       JAVA_HEAP_SIZE: ${JAVA_HEAP_SIZE:-768}
-      IBCTL_LIVE_API_PORT: ${IBCTL_LIVE_API_PORT:-4001}
-      IBCTL_PAPER_API_PORT: ${IBCTL_PAPER_API_PORT:-4002}
-      IBCTL_LIVE_SOCAT_PORT: ${IBCTL_LIVE_SOCAT_PORT:-4003}
-      IBCTL_PAPER_SOCAT_PORT: ${IBCTL_PAPER_SOCAT_PORT:-4004}
-      TZ: ${TZ:-America/New_York}
+      TWS_SETTINGS_PATH: /home/ibgateway/settings
+      TZ: ${TZ:-Etc/UTC}
       VNC_SERVER_PASSWORD: ${VNC_SERVER_PASSWORD:-}
       RUST_LOG: ${RUST_LOG:-ibctl=info}
       IBCTL_LOG_DIR: /opt/ibctl/persist/logs
@@ -130,8 +127,8 @@ services:
       # Generate with: openssl rand -hex 32
       IBCTL_NTFY_ACTION_SIGNING_KEY: ${IBCTL_NTFY_ACTION_SIGNING_KEY:-}
       # Backoff knobs — all empty = TOML default. See docs/hitl-2fa.md
-      IBCTL_TWOFA_MAX_IMMEDIATE_ATTEMPTS: ${IBCTL_TWOFA_MAX_IMMEDIATE_ATTEMPTS:-}
-      IBCTL_TWOFA_ON_TIMEOUT: ${IBCTL_TWOFA_ON_TIMEOUT:-}
+      IBCTL_TWOFA_MAX_IMMEDIATE_ATTEMPTS: ${IBCTL_TWOFA_MAX_IMMEDIATE_ATTEMPTS:-0}
+      IBCTL_TWOFA_ON_TIMEOUT: ${IBCTL_TWOFA_ON_TIMEOUT:-restart_forever}
       IBCTL_TWOFA_STRATEGY: ${IBCTL_TWOFA_STRATEGY:-}
       IBCTL_TWOFA_INTERVALS_MINUTES: ${IBCTL_TWOFA_INTERVALS_MINUTES:-}
       IBCTL_TWOFA_CALLBACK_VALID_HOURS: ${IBCTL_TWOFA_CALLBACK_VALID_HOURS:-}
@@ -149,12 +146,21 @@ services:
       # DISABLED and FORCE_RESET are Rust-only knobs; the five *_SECS/*_STREAK
       # vars are also validated by the dashboard preflight.
       IBCTL_RECOVERY_DISABLED: ${IBCTL_RECOVERY_DISABLED:-}
+      IBCTL_RECOVERY_AUTONOMOUS: ${IBCTL_RECOVERY_AUTONOMOUS:-true}
       IBCTL_RECOVERY_AGGRESSIVE_MAX_SECS: ${IBCTL_RECOVERY_AGGRESSIVE_MAX_SECS:-}
       IBCTL_RECOVERY_BACKOFF_MAX_SECS: ${IBCTL_RECOVERY_BACKOFF_MAX_SECS:-}
       IBCTL_RECOVERY_BACKOFF_INTERVAL_SECS: ${IBCTL_RECOVERY_BACKOFF_INTERVAL_SECS:-}
       IBCTL_RECOVERY_MIN_SUCCESS_DWELL_SECS: ${IBCTL_RECOVERY_MIN_SUCCESS_DWELL_SECS:-}
       IBCTL_RECOVERY_FINGERPRINT_STREAK: ${IBCTL_RECOVERY_FINGERPRINT_STREAK:-}
       IBCTL_RECOVERY_FORCE_RESET: ${IBCTL_RECOVERY_FORCE_RESET:-}
+      IBCTL_CONTAINER_EXIT_AFTER_RESTARTS: ${IBCTL_CONTAINER_EXIT_AFTER_RESTARTS:-8}
+      IBCTL_API_DISCONNECTED_GRACE_SECS: ${IBCTL_API_DISCONNECTED_GRACE_SECS:-600}
+
+      # --- Time authority / retention ---
+      IBCTL_NTP_SERVERS: ${IBCTL_NTP_SERVERS:-time.cloudflare.com:123,time.google.com:123,pool.ntp.org:123}
+      IBCTL_TIME_SYNC_REQUEST_FILE: /opt/ibctl/persist/time-sync/request
+      IBCTL_LOG_RETENTION_DAYS: ${IBCTL_LOG_RETENTION_DAYS:-45}
+      IBCTL_SETTINGS_BACKUP_RETENTION_DAYS: ${IBCTL_SETTINGS_BACKUP_RETENTION_DAYS:-30}
 
       # --- IB System Status Scraper ---
       IBCTL_IB_STATUS_ENABLED: ${IBCTL_IB_STATUS_ENABLED:-}
@@ -179,12 +185,13 @@ services:
       # this persistent volume, otherwise the GivenUp latch regresses on
       # every container restart.
       - ibctl-persist:/opt/ibctl/persist
+      - ibctl-settings:/home/ibgateway/settings
       # Optional: mount pre-downloaded binaries + dashboard templates for fast updates
       # - ./bin:/opt/ibctl/bin:ro
       # - ./dashboard/app:/opt/ibctl/dashboard/app:ro
     ports:
-      - "${IBCTL_LIVE_API_BIND:-127.0.0.1}:${IBCTL_LIVE_API_PORT:-4001}:${IBCTL_LIVE_SOCAT_PORT:-4003}"     # Live API
-      - "${IBCTL_PAPER_API_BIND:-127.0.0.1}:${IBCTL_PAPER_API_PORT:-4002}:${IBCTL_PAPER_SOCAT_PORT:-4004}"  # Paper API
+      - "${IBCTL_LIVE_API_BIND:-127.0.0.1}:${IBCTL_LIVE_API_PORT:-4001}:4003"     # Live API
+      - "${IBCTL_PAPER_API_BIND:-127.0.0.1}:${IBCTL_PAPER_API_PORT:-4002}:4004"  # Paper API
       - "${IBCTL_VNC_BIND:-127.0.0.1}:5900:5900"                            # VNC
       - "${IBCTL_VNC_BIND:-127.0.0.1}:6080:6080"                            # noVNC websocket
       - "127.0.0.1:7462:7462"                                               # Live command server
@@ -195,3 +202,4 @@ services:
 
 volumes:
   ibctl-persist:
+  ibctl-settings:

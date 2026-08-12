@@ -30,6 +30,13 @@ runtime = new RuntimeConfig {
     exitInterval = 120
     device = ""
     reloginAfterTimeout = false
+    backoff = new TwoFaBackoffConfig {
+      maxImmediateAttempts = 0
+      onTimeout = "restart_forever"
+      strategy = "periodic"
+      intervalsMinutes = new Listing { 5; 15; 30 }
+      counterReset = "stable"
+    }
   }
 
   gateway = new GatewayConfig {
@@ -91,7 +98,9 @@ runtime = new RuntimeConfig {
     loginDialogTimeoutSecs = 120
     restartDelaySecs = 90
     reloginMaxAttempts = 1
-    recovery = new RecoveryTimingConfig {}
+    recovery = new RecoveryTimingConfig {
+      autonomous = true
+    }
   }
 }
 

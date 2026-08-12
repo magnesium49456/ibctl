@@ -301,6 +301,9 @@ pub struct StateMachine {
     /// When the 2FA dialog first disappeared after being seen. Used for 3s confirmation
     /// delay to avoid reacting to transient redraws. Reset when dialog reappears.
     pub(super) twofa_gone_at: Option<Instant>,
+    /// Server-enforced earliest time for the next credential submission,
+    /// parsed from Gateway's "retry in N seconds" error dialog.
+    pub(super) twofa_retry_not_before: Option<Instant>,
     /// Timestamp when the current state was entered. Used for deadline-based timeouts
     /// instead of internal loops. Reset on every state transition in apply_transition().
     pub(super) state_entered_at: Instant,
@@ -336,6 +339,9 @@ pub struct StateMachine {
     /// Consecutive 2FA timeouts. Incremented on each `do_wait_for_2fa` timeout,
     /// reset on successful Connected entry (per `twofa.backoff.counter_reset`).
     pub(super) consecutive_2fa_timeouts: u32,
+    /// Consecutive JVM recovery cycles without a stable Connected dwell.
+    pub(super) consecutive_jvm_restarts: u32,
+    pub(super) settings_good_marked: bool,
     /// When we entered `WaitingForHitl2fa` most recently. Used for the
     /// periodic-retry timer and for `hitl.entered_at` in STATUS JSON.
     pub(super) hitl_entered_at: Option<Instant>,
@@ -521,6 +527,7 @@ impl StateMachine {
             twofa_device_selected: false,
             twofa_seen: false,
             twofa_gone_at: None,
+            twofa_retry_not_before: None,
             state_entered_at: Instant::now(),
             popup_last_dismissed: None,
             consecutive_agent_failures: 0,
@@ -530,6 +537,8 @@ impl StateMachine {
             revocation: RevocationTracker::new(),
             connection_event_disconnected: false,
             consecutive_2fa_timeouts: 0,
+            consecutive_jvm_restarts: 0,
+            settings_good_marked: false,
             hitl_entered_at: None,
             hitl_next_retry_at: None,
             hitl_intervals_index: 0,

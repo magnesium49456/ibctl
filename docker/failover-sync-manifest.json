@@ -94,6 +94,10 @@
         "toml_path": "session.tws_cold_restart_day",
         "env_var": "TWS_COLD_RESTART_DAY"
       },
+      "SAVE_TWS_SETTINGS_AT": {
+        "toml_path": "session.save_settings_at",
+        "env_var": "SAVE_TWS_SETTINGS_AT"
+      },
       "IBCTL_COMMAND_SERVER_ENABLED": {
         "toml_path": "command_server.enabled",
         "env_var": "IBCTL_COMMAND_SERVER_ENABLED"
@@ -177,6 +181,22 @@
         "toml_path": "gateway.tws_major_vrsn",
         "env_var": "TWS_MAJOR_VRSN"
       },
+      "IBCTL_LIVE_API_PORT": {
+        "toml_path": "gateway.live_api_port",
+        "env_var": "IBCTL_LIVE_API_PORT"
+      },
+      "IBCTL_PAPER_API_PORT": {
+        "toml_path": "gateway.paper_api_port",
+        "env_var": "IBCTL_PAPER_API_PORT"
+      },
+      "IBCTL_LIVE_SOCAT_PORT": {
+        "toml_path": "gateway.live_socat_port",
+        "env_var": "IBCTL_LIVE_SOCAT_PORT"
+      },
+      "IBCTL_PAPER_SOCAT_PORT": {
+        "toml_path": "gateway.paper_socat_port",
+        "env_var": "IBCTL_PAPER_SOCAT_PORT"
+      },
       "IBCTL_CONTROL_FROM": {
         "toml_path": "command_server.control_from",
         "env_var": "IBCTL_CONTROL_FROM"
@@ -212,6 +232,10 @@
       "IBCTL_RECOVERY_AGGRESSIVE_MAX_SECS": {
         "toml_path": "timing.recovery.aggressive_phase_max_secs",
         "env_var": "IBCTL_RECOVERY_AGGRESSIVE_MAX_SECS"
+      },
+      "IBCTL_RECOVERY_AUTONOMOUS": {
+        "toml_path": "timing.recovery.autonomous",
+        "env_var": "IBCTL_RECOVERY_AUTONOMOUS"
       },
       "IBCTL_RECOVERY_BACKOFF_MAX_SECS": {
         "toml_path": "timing.recovery.backoff_phase_max_secs",

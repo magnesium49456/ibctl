@@ -43,13 +43,13 @@ exit_interval = 180
 [twofa.backoff]
 # After this many consecutive 2FA timeouts, stop the tight restart loop and
 # enter WaitingForHitl2fa. 0 = disabled (legacy behavior: loop forever).
-max_immediate_attempts = 3
+max_immediate_attempts = 0
 # @env: IBCTL_TWOFA_MAX_IMMEDIATE_ATTEMPTS
 # What to do when twofa.exitInterval fires.
 #   "restart_then_hitl" — kill JVM, relaunch, count attempt; hit HITL on exhaustion (default)
 #   "restart_forever"   — legacy pre-HITL behavior (never stop)
 #   "hitl_immediately"  — first timeout goes straight to HITL (no restarts at all)
-on_timeout = "restart_then_hitl"
+on_timeout = "restart_forever"
 # @env: IBCTL_TWOFA_ON_TIMEOUT
 # HITL resume strategy: "disabled" | "periodic" | "ntfy_callback" | "both".
 # "disabled" = stay in HITL forever (dashboard still reflects state; operator
@@ -59,7 +59,7 @@ strategy = "periodic"
 # Retry cadence in minutes for periodic / both. Single value = constant.
 # List = traverse then hold at last element. Must be non-empty for non-
 # disabled strategies that include a timer.
-intervals_minutes = [60]
+intervals_minutes = [5, 15, 30]
 # Hours the signed ntfy-action URL stays valid — one-shot, redeemed on
 # first successful click. Range 1..=168 (one week ceiling).
 callback_valid_hours = 12
@@ -67,7 +67,7 @@ callback_valid_hours = 12
 # Counter-reset policy after a successful reach of Connected.
 #   "any_reach" — reset as soon as Connected (default)
 #   "stable"    — require Connected sustained for stableSecs before reset
-counter_reset = "any_reach"
+counter_reset = "stable"
 # @env: IBCTL_TWOFA_COUNTER_RESET
 # Seconds Connected must persist before resetting the attempt counter
 # when counterReset = "stable". Ignored for "any_reach".
@@ -104,12 +104,6 @@ java_heap_size = 768
 # Program type: "gateway" or "tws".
 gateway_or_tws = "gateway"
 # @env: GATEWAY_OR_TWS
-# API and socat port mappings. Gateway listens on the API port; socat forwards
-# from the container-facing socat port to Gateway's localhost-only API port.
-live_api_port = 4001
-paper_api_port = 4002
-live_socat_port = 4003
-paper_socat_port = 4004
 
 [session]
 # Session conflict action: "primary" | "secondary" | "primaryoverride".
@@ -118,8 +112,6 @@ action = "primary"
 # Incoming API connection policy: "accept" | "reject" | "manual".
 accept_incoming = "accept"
 # @env: IBCTL_ACCEPT_INCOMING
-# Daily times to save Gateway/TWS settings (env: SAVE_TWS_SETTINGS_AT)
-save_settings_at = ""
 
 [command_server]
 # Enable the IBC-compatible TCP command server (required for dashboard control).
@@ -176,6 +168,10 @@ api_port_probe_fails_before_revoke = 3
 # without touching env. Env IBCTL_RECOVERY_DISABLED=1|true|yes wins if set.
 # Default true.
 enabled = true
+# Never stop at GivenUp. Continue bounded backoff retries forever and
+# automatically clear legacy GivenUp markers on boot.
+autonomous = true
+# @env: IBCTL_RECOVERY_AUTONOMOUS
 # Aggressive → Backoff threshold (seconds). Default 3600 (1h).
 aggressive_phase_max_secs = 3600
 # @env: IBCTL_RECOVERY_AGGRESSIVE_MAX_SECS

@@ -6,6 +6,7 @@
 
 mod agent_client;
 mod agent_events;
+mod api_probe;
 mod atspi;
 mod cold_restart;
 mod command_server;
@@ -18,6 +19,7 @@ mod save_settings;
 mod signals;
 mod state_machine;
 mod supervisor;
+mod time_sync;
 mod totp;
 pub mod types;
 
@@ -118,6 +120,7 @@ fn main() -> ExitCode {
 
 /// Async entry point: sets up all components and runs the state machine.
 async fn async_main(config: ValidConfig) -> Result<(), Box<dyn std::error::Error>> {
+    time_sync::start_periodic_verifier(std::time::Duration::from_secs(300));
     // JoinSet owns all background tasks — structured concurrency ensures they
     // are cleaned up (aborted) when the JoinSet is dropped or shut down.
     let mut tasks: JoinSet<()> = JoinSet::new();

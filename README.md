@@ -154,7 +154,7 @@ For dual mode (live + paper simultaneously):
 | `IBCTL_PAPER_API_PORT` | Paper Gateway API socket port and default host port | `4002` |
 | `IBCTL_LIVE_SOCAT_PORT` | Internal live socat forwarding port | `4003` |
 | `IBCTL_PAPER_SOCAT_PORT` | Internal paper socat forwarding port | `4004` |
-| `TZ` | Container timezone. Use `Etc/UTC` if automated TOTP login is rejected. | `America/New_York` |
+| `TZ` | Container timezone. TOTP is generated from verified UTC time. | `Etc/UTC` |
 | `VNC_SERVER_PASSWORD` | Enable VNC with this password | disabled |
 | `IBCTL_COMMAND_PORT` | TCP command server port | `7462` |
 | `IBCTL_LOG_LEVEL` | `debug`, `info`, `warn`, `error` | `info` |
@@ -163,14 +163,14 @@ Docker secrets are supported: any variable can use `_FILE` suffix to read from a
 
 ## Troubleshooting
 
-### TOTP works only when `TZ` is UTC
+### TOTP failures and clock drift
 
 If automated TOTP entry reaches the 2FA dialog but IB Gateway rejects the code or keeps retrying login, check the Docker container timezone and the host clock first.
 
 Docker Compose uses `.env` values for `${...}` interpolation while parsing `docker-compose.yml`. The final `environment:` value in the Compose file is what the container receives. With the provided Compose file:
 
 ```yaml
-TZ: ${TZ:-America/New_York}
+TZ: ${TZ:-Etc/UTC}
 ```
 
 this `.env` line sets the container timezone to UTC:
@@ -185,7 +185,7 @@ Recommended TOTP settings:
 
 ```env
 TZ=Etc/UTC
-TOTP_PROVIDER=builtin
+TOTP_PROVIDER=oathtool
 ```
 
 You can verify the rendered container environment with dummy credentials:
@@ -194,7 +194,19 @@ You can verify the rendered container environment with dummy credentials:
 TWS_USERID=dummy TWS_PASSWORD=dummy TWOFACTOR_CODE=dummy TZ=Etc/UTC docker compose config
 ```
 
-Confirm the rendered output contains `TZ: Etc/UTC`. Also make sure the host running Docker has accurate time synchronization enabled, because TOTP codes are time-windowed and clock skew can make every generated code invalid.
+Confirm the rendered output contains `TZ: Etc/UTC`. ibctl also samples multiple
+NTP authorities and applies the verified offset directly to TOTP generation. On
+Windows, install the optional one-minute clock monitor (it forces a verified
+host sync at least every five minutes and immediately after a 2FA rejection):
+
+```powershell
+.\host\windows\Install-IbctlTimeSync.ps1
+```
+
+The Gateway's increasing retry countdown is parsed and treated as a hard
+deadline with a two-second safety margin, so ibctl will not submit early.
+See [Autonomous operations](docs/autonomous-operations.md) for watchdog,
+retention, backup, recovery, and rollback behavior.
 
 ### Gateway update changed the 2FA dialog
 

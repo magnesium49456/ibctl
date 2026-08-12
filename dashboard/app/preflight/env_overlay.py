@@ -81,6 +81,7 @@ _BOOL_FIELDS = {
     "ib_system_status.enabled",
     "logging.futures_session_logging",
     "site.auto_launch",
+    "timing.recovery.autonomous",
 }
 
 _INT_FIELDS = {

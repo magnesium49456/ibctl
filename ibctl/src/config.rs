@@ -577,6 +577,9 @@ pub struct RecoveryTimingConfig {
     /// wins if set. Default true.
     #[serde(default = "RecoveryTimingConfig::default_enabled")]
     pub enabled: bool,
+    /// Never park in GivenUp; continue bounded backoff forever.
+    #[serde(default)]
+    pub autonomous: bool,
     /// Aggressive → Backoff threshold. Default 3600 (1h).
     #[serde(default = "RecoveryTimingConfig::default_aggressive_max_secs")]
     pub aggressive_phase_max_secs: u64,
@@ -666,6 +669,7 @@ impl RecoveryTimingConfig {
         let disabled = env_bool("IBCTL_RECOVERY_DISABLED").unwrap_or(!self.enabled);
 
         crate::state_machine::recovery::RecoveryConfig {
+            autonomous: env_bool("IBCTL_RECOVERY_AUTONOMOUS").unwrap_or(self.autonomous),
             aggressive_phase_max_secs: env_u64(
                 "IBCTL_RECOVERY_AGGRESSIVE_MAX_SECS",
                 self.aggressive_phase_max_secs,
@@ -707,6 +711,7 @@ impl Default for RecoveryTimingConfig {
     fn default() -> Self {
         Self {
             enabled: Self::default_enabled(),
+            autonomous: false,
             aggressive_phase_max_secs: Self::default_aggressive_max_secs(),
             backoff_phase_max_secs: Self::default_backoff_max_secs(),
             backoff_interval_secs: Self::default_backoff_interval_secs(),

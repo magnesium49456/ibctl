@@ -1,7 +1,7 @@
 """Monitor: cross-layer consistency check.
 
 Detects false-Connected state by comparing the state machine's self-reported
-state against a ground-truth TCP probe of the Gateway API port.
+state against a ground-truth IB protocol handshake with the Gateway API port.
 
 Root cause from the 2026-04-16 incident: the state machine can enter Connected
 while the underlying Gateway is still at the login form (fail-open paths +
@@ -11,12 +11,11 @@ observations can't always be trusted — an external observer needs to verify.
 How it works:
   1. For each instance reporting state == "Connected", open a TCP socket to
      the Gateway's API port (4001 live / 4002 paper, internal to the container).
-  2. If TCP connect fails for N consecutive probes, the state is a lie.
-  3. Fire a critical alert and let the operator investigate (or trigger
-     automated recovery via RESTART command).
+  2. If the protocol handshake fails for N consecutive probes, the state is a lie.
+  3. Issue one automated RESTART and fire a critical alert.
 
-Intentionally does NOT drive state recovery — that's the state machine's job.
-This monitor is a watchdog / canary, not a second brain.
+The state machine remains responsible for recovery policy; this independent
+watchdog contributes one bounded recovery signal per incident.
 """
 
 from __future__ import annotations
@@ -24,7 +23,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import socket
+import struct
 import time
 
 from app.services.monitor_manager import Alert, Monitor
@@ -55,18 +54,20 @@ def _port_for_mode(mode: str) -> int:
 
 
 async def _probe_port(host: str, port: int, timeout: float) -> bool:
-    """TCP connect to host:port. Returns True on successful connect."""
+    """Perform an IB API v100 server-version handshake."""
+    writer = None
     try:
-        fut = asyncio.open_connection(host, port)
-        reader, writer = await asyncio.wait_for(fut, timeout=timeout)
-        writer.close()
-        try:
-            await writer.wait_closed()
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            logger.debug("writer.wait_closed() raised: %s", e)
-        return True
+        reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=timeout)
+        payload = b"v100..178\0"
+        writer.write(b"API\0" + struct.pack(">I", len(payload)) + payload)
+        await writer.drain()
+        size = struct.unpack(">I", await asyncio.wait_for(reader.readexactly(4), timeout=timeout))[0]
+        if size < 2 or size > 4096:
+            return False
+        response = await asyncio.wait_for(reader.readexactly(size), timeout=timeout)
+        first = response.split(b"\0", 1)[0]
+        reachable = first.isdigit() and int(first) >= 100
+        return reachable
     except asyncio.CancelledError:
         # Shutdown-time cancellation must propagate so the monitor loop
         # can exit cleanly. Never swallow it.
@@ -76,6 +77,15 @@ async def _probe_port(host: str, port: int, timeout: float) -> bool:
     except Exception as e:
         logger.debug("Probe of %s:%d raised unexpected error: %s", host, port, e)
         return False
+    finally:
+        if writer is not None:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.debug("writer.wait_closed() raised: %s", e)
 
 
 class FalseConnectedMonitor(Monitor):
@@ -100,6 +110,7 @@ class FalseConnectedMonitor(Monitor):
         self._fail_streak: dict[str, int] = {}
         # mode -> whether alert already sent for current streak (dedup until recovery)
         self._alerted: dict[str, bool] = {}
+        self._restart_sent: dict[str, bool] = {}
 
     async def check(self, registry, ns) -> list[Alert]:
         if not ns.is_event_enabled(self.event_type):
@@ -120,6 +131,7 @@ class FalseConnectedMonitor(Monitor):
             if state != "Connected":
                 self._fail_streak.pop(mode, None)
                 self._alerted.pop(mode, None)
+                self._restart_sent.pop(mode, None)
                 continue
 
             port = _port_for_mode(mode)
@@ -133,25 +145,35 @@ class FalseConnectedMonitor(Monitor):
                     )
                 self._fail_streak[mode] = 0
                 self._alerted[mode] = False
+                self._restart_sent[mode] = False
                 continue
 
             # Probe failed — increment streak
             self._fail_streak[mode] = self._fail_streak.get(mode, 0) + 1
             streak = self._fail_streak[mode]
             logger.warning(
-                "%s: state=Connected but TCP probe to 127.0.0.1:%d failed (streak=%d/%d)",
+                "%s: state=Connected but IB API handshake to 127.0.0.1:%d failed (streak=%d/%d)",
                 mode.upper(), port, streak, FAIL_THRESHOLD,
             )
 
             if streak >= FAIL_THRESHOLD and not self._alerted.get(mode, False):
+                restart_result = "not attempted"
+                if not self._restart_sent.get(mode, False):
+                    try:
+                        restart_result = await registry.get_client(mode).send_command("RESTART")
+                        self._restart_sent[mode] = True
+                        logger.error("%s false-Connected watchdog issued RESTART: %s", mode.upper(), restart_result)
+                    except Exception as error:
+                        restart_result = f"failed: {error}"
+                        logger.exception("%s false-Connected automatic RESTART failed", mode.upper())
                 alerts.append(Alert(
                     event_type=self.event_type,
                     title=f"ibctl: {mode.upper()} false-Connected detected",
                     body=(
-                        f"State machine reports {mode.upper()}=Connected but TCP probe "
+                        f"State machine reports {mode.upper()}=Connected but IB API handshake "
                         f"to 127.0.0.1:{port} has failed {streak} times in a row.\n"
                         f"Gateway may be at login form or API server may be down.\n"
-                        f"Check VNC console and consider issuing RESTART command."
+                        f"Automatic RESTART result: {restart_result}."
                     ),
                     priority="urgent",
                     tags="rotating_light,warning",

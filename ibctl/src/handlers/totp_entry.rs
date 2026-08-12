@@ -181,11 +181,17 @@ impl DialogHandler for TotpEntryHandler {
             })?);
 
             // Generate TOTP code in a blocking task to avoid blocking the runtime
+            totp::wait_for_safe_window().await;
+            let corrected_timestamp = crate::time_sync::corrected_unix_seconds()
+                .map_err(|e| HandlerError::Failed {
+                    handler: self.name().to_string(),
+                    reason: format!("failed to read corrected clock: {e}"),
+                })?;
             let provider_type = self.provider;
             let handler_name = self.name().to_string();
             let totp_code = tokio::task::spawn_blocking(move || {
                 let provider = totp::create_provider(provider_type)?;
-                provider.generate(secret.expose_secret())
+                provider.generate_at(secret.expose_secret(), corrected_timestamp)
             })
             .await
             .map_err(|e| HandlerError::Failed {

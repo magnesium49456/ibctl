@@ -481,7 +481,8 @@ class TestSettingsDirSoftWarn:
     def test_settings_dir_missing_soft_warn(self, monkeypatch, toml_file, tmp_path):
         """A tws_settings_path that doesn't exist emits a soft-warn."""
         missing = tmp_path / "does-not-exist" / "Jts"
-        content = f'[gateway]\ntws_settings_path = "{missing}"\n'
+        path = str(missing).replace("\\", "\\\\")
+        content = f'[gateway]\ntws_settings_path = "{path}"\n'
         result = validate_config(toml_path=toml_file(content), check_env=False)
         assert result.ok, (
             "missing settings dir should be a WARN, not an error; "
@@ -504,7 +505,8 @@ class TestSettingsDirSoftWarn:
         """
         existing = tmp_path / "Jts_live"
         existing.mkdir()
-        content = f'[gateway]\ntws_settings_path = "{existing}"\n'
+        path = str(existing).replace("\\", "\\\\")
+        content = f'[gateway]\ntws_settings_path = "{path}"\n'
         result = validate_config(toml_path=toml_file(content), check_env=False)
         assert result.ok
         assert not any(
@@ -580,6 +582,7 @@ class TestRecoveryPydanticDefaultsMatchRust:
     # Extracted from ibctl/src/config.rs::RecoveryTimingConfig::impl (lines 613-621).
     RUST_DEFAULTS: dict = {
         "enabled": True,
+        "autonomous": False,
         "aggressive_phase_max_secs": 3600,
         "backoff_phase_max_secs": 10800,
         "backoff_interval_secs": 900,
@@ -699,6 +702,7 @@ class TestRecoveryTomlRendererSmoke:
         # Sanity-check every field name lands in the output.
         expected_fields = [
             "enabled",
+            "autonomous",
             "aggressive_phase_max_secs",
             "backoff_phase_max_secs",
             "backoff_interval_secs",

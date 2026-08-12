@@ -268,6 +268,18 @@ impl StateMachine {
             } else {
                 serde_json::Value::Null
             },
+            "twofa_clock": {
+                "verified_offset_ms": crate::time_sync::verified_offset_ms(),
+                "last_verified_unix_secs": crate::time_sync::last_verified_unix_secs(),
+                "server_retry_in_secs": self.twofa_retry_not_before
+                    .map(|deadline| deadline.saturating_duration_since(std::time::Instant::now()).as_secs()),
+            },
+            "watchdog": {
+                "consecutive_jvm_restarts": self.consecutive_jvm_restarts,
+                "container_exit_after_restarts": std::env::var("IBCTL_CONTAINER_EXIT_AFTER_RESTARTS")
+                    .ok().and_then(|value| value.parse::<u32>().ok()).unwrap_or(8),
+                "api_probe": "ib_v100_handshake",
+            },
             "recovery": recovery_json,
             "last_cold_restart_skip": self.last_cold_restart_skip.as_ref().map(|rec| {
                 let mut obj = serde_json::json!({

@@ -37,6 +37,13 @@ echo "=========================================="
 echo "  ibctl starting (mode=${TRADING_MODE:-live})"
 echo "=========================================="
 
+# Restore settings after a full-container recovery and enforce bounded
+# retention. The background loop snapshots settings only after ibctl records
+# a stable Connected dwell, so a broken startup cannot overwrite the LKG.
+/opt/ibctl/resilience-maintenance.sh --startup
+/opt/ibctl/resilience-maintenance.sh &
+MAINTENANCE_PID=$!
+
 # Start Xvfb
 DISPLAY=:1
 export DISPLAY
@@ -315,6 +322,7 @@ cleanup() {
         kill -TERM "$pid" 2>/dev/null || true
     done
     wait "${PIDS[@]}" 2>/dev/null || true
+    kill "${MAINTENANCE_PID:-}" 2>/dev/null || true
     if [ -n "${DBUS_SESSION_BUS_PID:-}" ]; then
         kill "$DBUS_SESSION_BUS_PID" 2>/dev/null || true
     fi

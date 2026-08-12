@@ -193,6 +193,7 @@ class RecoveryConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = True
+    autonomous: bool = False
     aggressive_phase_max_secs: int = Field(default=3600, ge=0)
     backoff_phase_max_secs: int = Field(default=10800, ge=0)
     backoff_interval_secs: int = Field(default=900, ge=0)
@@ -565,6 +566,7 @@ ENV_MAP: dict[str, str] = {
     # int vars below round-trip through TOML so the effective config Rust
     # loads matches what preflight validates.
     "timing.recovery.aggressive_phase_max_secs": "IBCTL_RECOVERY_AGGRESSIVE_MAX_SECS",
+    "timing.recovery.autonomous": "IBCTL_RECOVERY_AUTONOMOUS",
     "timing.recovery.backoff_phase_max_secs": "IBCTL_RECOVERY_BACKOFF_MAX_SECS",
     "timing.recovery.backoff_interval_secs": "IBCTL_RECOVERY_BACKOFF_INTERVAL_SECS",
     "timing.recovery.min_success_dwell_secs": "IBCTL_RECOVERY_MIN_SUCCESS_DWELL_SECS",

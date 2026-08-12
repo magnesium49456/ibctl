@@ -51,6 +51,7 @@ pub const MODULE_ACCESS_FLAGS: &[&str] = &[
     "--add-opens=java.desktop/sun.awt=ALL-UNNAMED",
     "--add-exports=java.desktop/sun.awt.X11=ALL-UNNAMED",
     "--add-exports=java.desktop/sun.swing=ALL-UNNAMED",
+    "--add-exports=javafx.graphics/com.sun.javafx.application=ALL-UNNAMED",
     "--add-opens=jdk.management/com.sun.management.internal=ALL-UNNAMED",
 ];
 
@@ -197,6 +198,7 @@ impl Supervisor {
         cmd.arg(format!("-DjtsConfigDir={}", settings_path));
         cmd.arg("-Dtwslaunch.autoupdate.serviceImpl=com.ib.tws.twslaunch.install4j.Install4jAutoUpdateService");
         cmd.arg("-Dchannel=latest");
+        cmd.arg("-Djdk.xml.elementAttributeLimit=1000");
         cmd.arg("-Dexe4j.isInstall4j=true");
         cmd.arg("-DinstallType=standalone");
         let atspi_enabled = std::env::var("IBCTL_ATSPI_FALLBACK")
